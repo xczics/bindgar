@@ -1,3 +1,15 @@
+"""
+版权所有 (c) [2025] [Zicong Xiao (Nick name: Zircon)]
+Copyright (c) [2025] [Zicong Xiao (Nick name: Zircon)]
+GPLv3 许可证。禁止商业用途, 尤其是禁止营销号打包行为。
+Licensed under GPLv3. Commercial use is prohibited, especially repackaging by unauthorized marketing accounts on social media.
+
+【开发声明/Development Notice】
+本代码在AI辅助下开发 | Code developed with AI assistance
+作者免责 | Author not liable for use
+
+"""
+
 import argparse
 import yaml
 import os
