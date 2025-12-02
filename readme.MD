@@ -1,4 +1,4 @@
-# BINDGAR is Interface for N-body Data, especially for Genga And Rebound.
+# BINDGAR is Interface for N-body Data, especially for GENGA And REBOUND.
 
 ## Declaration / 声明
 
@@ -39,13 +39,13 @@ This software package was developed with the assistance of generative AI technol
 
 # Description
 
-**Bindgar** is an interface for N-body data, especially for Genga and Rebound. The name is a recursive acronym. 
+**Bindgar** is an interface for N-body data, especially for [GENGA](https://bitbucket.org/sigrimm/gengas) and [REBOUND](https://github.com/hannorein/rebound). The name is a recursive acronym. 
 
 **BINDGAR bridges these two powerful tools**:
 
-- **Rebound** excels at setting up initial conditions and rapid simulation prototyping / 快速模拟原型设计
-- **Genga** specializes in high-precision, long-term planetary system evolution
-It allows you to seamlessly transition your Rebound simulations into Genga's high-precision integration environment.
+- **REBOUND** excels at setting up initial conditions and rapid simulation prototyping
+- **GENGA** specializes in high-precision, long-term planetary system evolution
+It allows you to seamlessly transition your REBOUND simulations into GENGA's high-precision integration environment.
 
 **Warning**: The author hasn't bothered uploading this to PyPI yet. You'll have to install it manually, by cloning the repository and running `pip install .` in the project directory. And add an "-e" flag if you want to edit the code later.
 
@@ -59,12 +59,12 @@ It allows you to seamlessly transition your Rebound simulations into Genga's hig
 
 
 # 中文介绍
-Bindgar 是一个专为 N 体数据打造的接口工具，特别为 Genga 和 Rebound 这两款神器量身定制！而且哦，它的名字其实是个递归缩写～
+Bindgar 是一个专为 N 体数据打造的接口工具，特别为 [GENGA](https://bitbucket.org/sigrimm/gengas) 和 [REBOUND](https://github.com/hannorein/rebound). 这两款神器量身定制！而且哦，它的名字其实是个递归缩写～
 
 **Bindgar** 为你架起一座无缝桥梁：
 
 - **REBOUND**：一个十分便利的N体模拟python库，只是实际计算时算起来有点慢
-- **GENGA**：一个超级无敌强大的N体模拟软件，专注于高精度、长期的行星系统演化模拟，还可以利用GPU加速计算！只不过...GENGA 的输入输出格式有点复杂
+- **GENGA**：一个超级无敌强大的N体模拟软件，专注于高精度、长期的行星系统演化模拟，还可以利用GPU加速计算！只不过GENGA 的输入输出格式有点复杂
 
 **Bindgar** 主要利用REBOUND来设置初始条件，然后转化成GENGA的输入文件，还能分析GENGA的输出结果。
 
@@ -74,6 +74,6 @@ Bindgar 是一个专为 N 体数据打造的接口工具，特别为 Genga 和 R
 
 **碎碎念**：作者懒得写测试代码，所以请自行承担使用风险。
 
-**碎碎念**：作者懒得让它跨平台测试，所以目前只在 Linux 和 MacOS 上测试过。
+**碎碎念**：作者懒得进行跨平台测试，所以目前只在 Linux 和 MacOS 上测试过。
 
-**碎碎念**：这是作者为了便于自己入门N-body模拟而造的轮子，可能随着项目进展随时添加功能或更改API。
+**碎碎念**：这是作者为了便于自己入门 N-body 模拟而造的轮子，可能随着项目进展随时添加功能或更改 API。
