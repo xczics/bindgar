@@ -101,6 +101,11 @@ def main():
             "help": "color for analog regions",
             "type": list,
         },
+        "figure_file" : {
+            "default": "analogs_plot.png",
+            "help": "output figure file name",
+            "type": str,
+        },
     }
     input_params = InputLoader(DEFAULT_PARAMS).load()
     simulations_lists = input_params["simulations_lists"]
@@ -118,7 +123,7 @@ def main():
     m_start = input_params["m_start"]
     m_end = input_params["m_end"]
     color_analogs = input_params["color_analogs"]
-    draw_analogs(simulations_lists, color_map, planet_like_critical, a_start, a_end, m_start, m_end, color_analogs)
+    draw_analogs(simulations_lists, color_map, planet_like_critical, a_start, a_end, m_start, m_end, color_analogs, input_params["figure_file"])
 
 if __name__ == "__main__":
     main()

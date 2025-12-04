@@ -22,7 +22,7 @@ class ParticleGroupParams:
     r: float
     e_type: Literal["uniform", "rayleigh", "fixed"] = "rayleigh"
     inc_type: Literal["uniform", "rayleigh", "fixed", "e_factor"] = "rayleigh"
-    a_type: Literal["uniform", "powerlaw"] = "uniform"
+    a_type: Literal["uniform", "powerlaw", "gaussian"] = "uniform"
     e2i_factor: float = 0.5
     a_factor: float = -1.5
 
@@ -36,6 +36,9 @@ def rand_powerlaw(min_v: float, max_v: float, factor: float, N: int) -> float:
         power = factor + 2.0
         value = ((max_v**power - min_v**power) * a + min_v**power) ** (1.0 / power)
     return value
+
+def rand_gaussian(mean: float, sigma: float, N: int) -> float:
+    return np.random.normal(mean, sigma, N)
 
 def rand_uniform(minimum: float, maximum: float, N: int) -> float:
     return np.random.uniform(0, 1, N) * (maximum - minimum) + minimum
@@ -65,6 +68,10 @@ def add_particle_groups(sim: rebound.Simulation, embryo_params: ParticleGroupPar
         a_values = rand_uniform(embryo_params.a_range[0], embryo_params.a_range[1], N)
     elif embryo_params.a_type == "powerlaw":
         a_values = rand_powerlaw(embryo_params.a_range[0], embryo_params.a_range[1], embryo_params.a_factor, N)
+    elif embryo_params.a_type == "gaussian":
+        mean_a = 0.5 * (embryo_params.a_range[0] + embryo_params.a_range[1])
+        sigma_a = 0.5 * (embryo_params.a_range[1] - embryo_params.a_range[0])
+        a_values = rand_gaussian(mean_a, sigma_a, N)
     else:
         raise ValueError(f"Unknown a_type: {embryo_params.a_type}")
     # set e
@@ -178,7 +185,7 @@ def main():
     },
     "rho": {
         "default": 4.0,
-        "help": "Density of particles in g/cm^3",
+        "help": "Density of particles in g/cm^3, used to calculate radius if r_emb or r_pl is not set",
         "type": float,
     },
     "emb_a_range": {
@@ -233,9 +240,9 @@ def main():
     },
     "a_type": {
         "default": "uniform",
-        "help": "Type of semi-major axis distribution ('uniform' or 'powerlaw')",
+        "help": "Type of semi-major axis distribution ('uniform', 'powerlaw', or 'gaussian'). If 'uniform', a is uniformly distributed between a_range; if 'powerlaw', a follows a powerlaw surface density distribution, where Σ ∝ r^p; if 'gaussian', a follows a Gaussian distribution, where a_range is the ±1σ range.",
         "type": str,
-        "choices": ["uniform", "powerlaw"],
+        "choices": ["uniform", "powerlaw", "gaussian"],
     },
     "a_powerlaw_factor": {
         "default": -1.5,

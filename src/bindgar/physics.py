@@ -1,6 +1,7 @@
 from math import acos
 from typing import Tuple, Sequence, Union
 import numpy as np  # type: ignore
+from dataclasses import dataclass
 
 # physics constants
 M_SUN = 1.98847e30  # kg
@@ -35,13 +36,13 @@ def calculate_orbital(x: float, y: float, z: float, vx: float, vy: float, vz: fl
     inc = acos(h_z/h) 
     return a, e, inc
 
+@dataclass
 class AnalogCriteria:
-    def __init__(self, name: str, a_lower: float, a_upper: float, m_lower: float, m_upper: float):
-        self.name = name
-        self.a_lower = a_lower
-        self.a_upper = a_upper
-        self.m_lower = m_lower
-        self.m_upper = m_upper
+    name: str
+    a_lower: float
+    a_upper: float
+    m_lower: float
+    m_upper: float
     def is_analog(self, a: float, m: float, m_unit: str = "earth") -> bool:
         if m_unit == "earth":
             return (self.a_lower <= a <= self.a_upper) and (self.m_lower <= m <= self.m_upper)

@@ -8,6 +8,7 @@ setup(
         'numpy',
         'matplotlib',
         'rebound',
+        'pyyaml',
         # Add other dependencies as needed
     ],
     package_dir={'': 'src'},

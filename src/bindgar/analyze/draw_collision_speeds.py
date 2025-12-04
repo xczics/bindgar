@@ -94,6 +94,8 @@ def main():
                     dvz = collision['vzi'] - collision['vzj']
                     relv = np.sqrt(dvx**2 + dvy**2 + dvz**2)
                     relvs.append(relv)
+        if relvs == []:
+            continue
         relvs = np.array(relvs)
         relvs *= convert_factor_from_auptu_to_kmps
         ax.scatter(relvs, np.zeros_like(relvs), color=color_map[index], s=5, alpha=0.6)
