@@ -8,7 +8,6 @@ from .physics import DENSITY2K, M_EARTH, M_SUN
 from .datahandle import SimulationOutputData
 from .cli import register_command
 
-
 # import dataclass
 from dataclasses import dataclass
 
