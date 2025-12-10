@@ -1,5 +1,4 @@
 import sys
-from functools import wraps
 import os
 import inspect
 import importlib
@@ -107,11 +106,7 @@ def register_command(command_name=None, script_name=None, help_msg=""):
         else:
             registry.bind(actual_command_name, actual_script_name, func, help_msg)
         
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        
-        return wrapper
+        return func
     return decorator
 
 def _dynamic_import_analyze_modules():

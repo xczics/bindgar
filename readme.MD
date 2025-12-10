@@ -1,5 +1,27 @@
 # BINDGAR is Interface for N-body Data, especially for GENGA And REBOUND.
 
+# Description
+
+**Bindgar** is an interface for N-body data, especially for [GENGA](https://bitbucket.org/sigrimm/gengas) and [REBOUND](https://github.com/hannorein/rebound). The name is a recursive acronym. 
+
+**BINDGAR bridges these two powerful tools**:
+
+- **REBOUND** excels at setting up initial conditions and rapid simulation prototyping
+- **GENGA** specializes in high-precision, long-term planetary system evolution
+It allows you to seamlessly transition your REBOUND simulations into GENGA's high-precision integration environment.
+
+## Quick Start
+
+- Clone the code into your own machine.
+- Install it by running `pip install -e .` in the dir of the code.
+- run `bindgar -h` to see what you can do with this code.
+
+## Current Subcommands
+- `draw-analogs`: plot m .vs. a of the residential particles, and compare them with modern Earth-like planets.
+- `draw-collision-speeds`: plot the KDE of collision speeds related to particles with final masses in given range.
+- `draw-init`: plot the initial conditions of a given simulation.
+- `setup-generate`: generate the initial conditions, and output the genga input file. 
+
 ## Declaration / 声明
 
 ### License / 许可证
@@ -12,12 +34,10 @@ This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 **明确禁止所有商业用途**，包括但不限于：
 - Commercial product sales or services / 商业产品销售或服务
 - Enterprise for-profit projects / 企业盈利性项目
-- Any form of commercial application / 任何形式的商业应用
-- **Especially** / **特别严禁用于**
-    - Repackaging and redistribution on social media platforms as "fan benefits" or "resource packages" that require following, adding friends, or other forms of engagement to access / 在社交媒体上重新打包传播，作为需要关注、加好友等条件才能获取的"粉丝福利"或"资源整合包"
-    - Marketing accounts redistributing the software for traffic generation, follower growth, or other promotional purposes / 营销号以引流、涨粉等为目的的软件传播行为
-    - Any form of paid or restricted-access redistribution / 任何形式的付费或限条件传播行为
-    - Bundling this software into commercial packages or value-added services / 将本软件捆绑进商业套餐或增值服务中
+- Repackaging and redistribution on social media platforms as "fan benefits" or "resource packages" that require following, adding friends, or other forms of engagement to access / 在社交媒体上重新打包传播，作为需要关注、加好友等条件才能获取的"粉丝福利"或"资源整合包"
+- Marketing accounts redistributing the software for traffic generation, follower growth, or other promotional purposes / 营销号以引流、涨粉等为目的的软件传播行为
+- Any form of paid or restricted-access redistribution / 任何形式的付费或限条件传播行为
+- Bundling this software into commercial packages or value-added services / 将本软件捆绑进商业套餐或增值服务中
 
 Academic research, educational institutions, and personal learning are fully permitted without special authorization.
 
@@ -28,7 +48,7 @@ This software package was developed with the assistance of generative AI technol
 
 本软件包是在生成式人工智能技术辅助下开发的，**未经全面、严谨的测试与验证**。
 
-**This software is provided "as is", without warranty of any kind**, express or implied. Users assume all risks associated with the use of this software. The author shall not be liable for any loss or damage arising from the use of this software.
+**This software is provided "as is", without warranty of any kind**, express or implied. I hope it can help, but users assume all risks associated with the use of this software. The author shall not be liable for any loss or damage arising from the use of this software.
 
 **本软件按"现状"提供，不附带任何明示或暗示的担保**。使用者应自行承担使用本软件的所有风险，作者对因使用本软件而产生的任何损失或损害不承担责任。
 
@@ -36,16 +56,7 @@ This software package was developed with the assistance of generative AI technol
 - **Must** independently verify and test the critical functionalities of this software / **请务必**独立的验证和测试本软件的关键功能
 - Problem reports and suggestions are welcome, but timely fixes cannot be guaranteed / 欢迎反馈问题和建议，但无法保证及时修复
 
-
-# Description
-
-**Bindgar** is an interface for N-body data, especially for [GENGA](https://bitbucket.org/sigrimm/gengas) and [REBOUND](https://github.com/hannorein/rebound). The name is a recursive acronym. 
-
-**BINDGAR bridges these two powerful tools**:
-
-- **REBOUND** excels at setting up initial conditions and rapid simulation prototyping
-- **GENGA** specializes in high-precision, long-term planetary system evolution
-It allows you to seamlessly transition your REBOUND simulations into GENGA's high-precision integration environment.
+### Warnings
 
 **Warning**: The author hasn't bothered uploading this to PyPI yet. You'll have to install it manually, by cloning the repository and running `pip install .` in the project directory. And add an "-e" flag if you want to edit the code later.
 
@@ -57,9 +68,8 @@ It allows you to seamlessly transition your REBOUND simulations into GENGA's hig
 
 **Warning**: It is an "on-the-fly" project. The author may add features or change the API at any time without notice.
 
-
 # 中文介绍
-Bindgar 是一个专为 N 体数据打造的接口工具，特别为 [GENGA](https://bitbucket.org/sigrimm/gengas) 和 [REBOUND](https://github.com/hannorein/rebound). 这两款神器量身定制！而且哦，它的名字其实是个递归缩写～
+Bindgar 是一个专为 N 体数据打造的接口工具，特别为 [GENGA](https://bitbucket.org/sigrimm/gengas) 和 [REBOUND](https://github.com/hannorein/rebound). 这两款神器量身定制！它的名字其实是个递归缩写～
 
 **Bindgar** 为你架起一座无缝桥梁：
 
