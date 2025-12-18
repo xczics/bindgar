@@ -83,6 +83,7 @@ class SimulationOutputData:
         self.split = split
         self.skip_header = skip_header
         self.chunk_size = chunk_size
+        self._len = None
         if isinstance(format_spec, str):
             self.format_list = pharse_format(format_spec, split)
         else:
@@ -160,3 +161,15 @@ class SimulationOutputData:
     def __exit__(self, exc_type, exc_value, traceback):
         # I don't know how python handle the __exit__ parameters, I just use the version suggested by copilot
         self.close()
+    # define a len function to return the number of lines in the file, use system call to avoid loading the whole file into memory
+    def __len__(self):
+        if self._len is not None:
+            return self._len
+        if self.mode != "r":
+            raise ValueError("File not opened in read mode")
+        current_pos = self.file.tell()
+        self.file.seek(0)
+        length = sum(1 for _ in self.file) - (1 if self.skip_header else 0)
+        self.file.seek(current_pos)
+        self._len = length
+        return length
