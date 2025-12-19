@@ -69,6 +69,7 @@ class SimulationOutput:
     
     def get_init_data(self) -> SimulationOutputData:
         init_file = self.get_input_params("Input file")
+        init_file =  path.join(self.path, init_file)
         init_format = self.get_input_params("Input file Format")
         return SimulationOutputData(init_file, init_format, mode="r", skip_header=False)
 
@@ -112,7 +113,7 @@ class SimulationOutput:
             if pidx not in skip_indexes:
                 total_num += 1
             idx += 1
-        return total_mass        
+        return total_num 
     
     @lru_cache(maxsize=2)
     def get_init_total_mass(self, skip_indexes: List[int] = None) -> float:
@@ -127,7 +128,6 @@ class SimulationOutput:
     def get_final_num_particles(self, skip_indexes: List[int] = None) -> int:
         return self._get_num_particles(self.load_last_output(),skip_indexes)
 
-    @lru_cache(maxsize=4)
     def magic_color(self, properties: List = None, value_range: List = None) -> str:
         """
         It is a magic function, it can auto-select color based on the properties of the simulation.
@@ -143,18 +143,18 @@ class SimulationOutput:
         from .common import lab_to_rgb, rgb_to_hex
         supported_properties = ["total_init_mass","num_particles","lg_num_particles"]
         default_properties_range = {
-            "total_init_mass" : [M_EARTH/M_SUN * 0.1, M_EARTH/M_SUN * 10]
-            "num_particles" : [50, 4000]
-            "lg_num_particles" : [1, 3]
+            "total_init_mass" : [M_EARTH/M_SUN * 0.1, M_EARTH/M_SUN * 10],
+            "num_particles" : [50, 4000],
+            "lg_num_particles" : [2, 3],
         }
         get_prop_funcs = {
-            "total_init_mass" : self.get_init_total_mass
-            "num_particles" : self.get_num_particles
-            "lg_num_particles" : lambda: math.log10(self.get_num_particles())
+            "total_init_mass" : self.get_init_total_mass,
+            "num_particles" : self.get_init_num_particles,
+            "lg_num_particles" : lambda: math.log10(self.get_init_num_particles()),
         }
         default_color_range = [
             [20, 100],
-            [10, 128],
+            [1, 128],
             [0, 360]
         ]
 

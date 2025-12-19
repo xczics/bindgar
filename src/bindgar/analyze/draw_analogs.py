@@ -22,12 +22,21 @@ def get_final_particles(SimulationOutputObject: SimulationOutput,
 def draw_analogs(simulations_lists: List[str], color_map: List[str], 
                   planet_like_critical: List[AnalogCriteria], a_start: float, 
                   a_end: float, m_start: float, m_end: float, color_analogs: List[str],
-                  figure_file: str = "analogs_plot.png"):
+                  figure_file: str = "analogs_plot.png",
+                  auto_color: bool = False,
+                  color_params: List[List] = None):
     import matplotlib.pyplot as plt  # type: ignore
     plt.figure(figsize=(10, 8))
-    ax=plt.gca()
+    ax = plt.gca()
     for sim_index, simulation in enumerate(simulations_lists):
         SimOutObj = SimulationOutput(simulation)
+        if auto_color:
+            if color_params is None:
+                color = SimOutObj.magic_color()
+            else:
+                color = SimOutObj.magic_color(properties=color_params[sim_index])
+        else:
+            color = color_map[sim_index]
         final_particles = get_final_particles(SimOutObj)
         a_values = []
         for part in final_particles:
@@ -37,7 +46,7 @@ def draw_analogs(simulations_lists: List[str], color_map: List[str],
             )
             a_values.append(a)
         m_values = [part["m"] * M_SUN / M_EARTH for part in final_particles]
-        ax.scatter(a_values, m_values, color=color_map[sim_index], label=SimOutObj.get_input_params("Output name"), alpha=0.6, s=10)
+        ax.scatter(a_values, m_values, color=color, label=SimOutObj.get_input_params("Output name"), alpha=0.6, s=20)
     # draw range of planet-like analogs
     for crit_index, criteria in enumerate(planet_like_critical):
         ax.fill_betweenx(
@@ -105,6 +114,17 @@ def main():
             "default": "analogs_plot.png",
             "help": "output figure file name",
             "type": str,
+            "short": "o",
+        },
+        "auto_color" : {
+            "default": True,
+            "help": "auto set the colors by the simulation set",
+            "type": bool,
+        },
+        "color_params" : {
+            "default": None,
+            "help": "auto set the colors by the simulation set, you can specify the properties for color mapping. It should be the same size as simulations_lists",
+            "type": List,
         },
     }
     input_params = InputLoader(DEFAULT_PARAMS).load()
@@ -123,7 +143,9 @@ def main():
     m_start = input_params["m_start"]
     m_end = input_params["m_end"]
     color_analogs = input_params["color_analogs"]
-    draw_analogs(simulations_lists, color_map, planet_like_critical, a_start, a_end, m_start, m_end, color_analogs, input_params["figure_file"])
+    draw_analogs(simulations_lists, color_map, planet_like_critical,
+     a_start, a_end, m_start, m_end, color_analogs,
+    input_params["figure_file"],input_params["auto_color"], input_params["color_params"])
 
 if __name__ == "__main__":
     main()
