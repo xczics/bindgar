@@ -1,3 +1,57 @@
+"""
+This module provides functionality to generate initial conditions for 
+N-body simulations using the `rebound` library. It includes utilities 
+to add stars, gas giants, and particle groups (e.g., embryos and 
+planetesimals) to a simulation, as well as to output the simulation 
+data in a specified format.
+Classes:
+    - ParticleGroupParams: A dataclass to define parameters for a group 
+      of particles, such as their mass, semi-major axis distribution, 
+      eccentricity, inclination, and other orbital properties.
+Functions:
+    - rand_powerlaw(min_v, max_v, factor, N): Generate random values 
+      following a power-law distribution.
+    - rand_gaussian(mean, sigma, N): Generate random values following 
+      a Gaussian distribution.
+    - rand_uniform(minimum, maximum, N): Generate random values 
+      uniformly distributed between a minimum and maximum value.
+    - rand_rayleigh(sigma, N): Generate random values following a 
+      Rayleigh distribution.
+    - add_star(sim, mass=1.0): Add a central star to the simulation.
+    - add_gas_giants(sim, gas_giants_list): Add gas giants to the 
+      simulation based on a list of parameters.
+    - add_particle_groups(sim, embryo_params): Add a group of particles 
+      (e.g., embryos or planetesimals) to the simulation based on 
+      specified parameters.
+    - OutPutSim(sim, output_file, format_str): Output the simulation 
+      data to a file in the specified format.
+    - main(): The main entry point for generating initial conditions 
+      based on user-defined parameters.
+Command:
+    - setup-generate: A CLI command to generate initial conditions for 
+      N-body simulations. It supports a variety of parameters to 
+      customize the simulation, including the number of particles, 
+      their masses, orbital distributions, and output format.
+Dependencies:
+    - rebound: A library for N-body simulations.
+    - numpy: A library for numerical computations.
+    - ctypes: Used for handling particle hashes.
+    - dataclasses: Used for defining the `ParticleGroupParams` class.
+    - typing: Used for type annotations.
+    - os: Used for file handling.
+    - .physics: Contains constants and utility functions for physical 
+      calculations.
+    - .datahandle: Provides functionality for handling simulation 
+      output data.
+    - .cli: Provides utilities for registering CLI commands.
+    - .input: Provides utilities for loading input parameters.
+Usage:
+    This module is designed to be executed as a script or imported as 
+    part of a larger simulation pipeline. The `main` function serves 
+    as the entry point for generating initial conditions via the 
+    `setup-generate` CLI command.
+
+"""
 import rebound # type: ignore
 import numpy as np # type: ignore
 #import pandas as pd
