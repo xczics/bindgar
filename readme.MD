@@ -17,10 +17,15 @@ It allows you to seamlessly transition your REBOUND simulations into GENGA's hig
 - run `bindgar -h` to see what you can do with this code.
 
 ## Current Subcommands
+
 - `draw-analogs`: plot m .vs. a of the residential particles, and compare them with modern Earth-like planets.
 - `draw-collision-speeds`: plot the KDE of collision speeds related to particles with final masses in given range.
 - `draw-init`: plot the initial conditions of a given simulation.
-- `setup-generate`: generate the initial conditions, and output the genga input file. 
+- `setup-generate`: generate the initial conditions, and output the genga input file.
+
+## Devoltiliazation during the collision
+
+This package also includes the calculation of devolatilization during the collision. It uses the model from MeltScalingLaw[https://github.com/mikinakajima/MeltScalingLaw] to estimate the melting fraction during the collision. Their code are linked in `src/bindgar/devol/nakajima`. If their code changes, run `git subtree pull --prefix=src/bindgar/devol/nakajima https://github.com/mikinakajima/MeltScalingLaw.git master --squash` to update their code.
 
 ## Declaration / 声明
 
