@@ -1,0 +1,9 @@
+lapaz
+vik
+turku
+*.zip
+.DS_Store
+output.eps
+README.pdf
+melt_model_Nakajima_et_al.v*.py
+
