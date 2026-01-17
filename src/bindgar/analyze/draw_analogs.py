@@ -108,6 +108,8 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
     ax.scatter(a_values, y_zeros, s=np.array(m_values) ** (2/3) * size_factor, color='blue')
     if not vi_x_tick_labels:    
         ax.set_xticklabels([])
+    else:
+        ax.set_xlabel("Semi-major axis (a.u.)")
     ax.set_yticklabels([])
     ax.set_yticks([-1, 0, 1])
     # 添加中心水平线
