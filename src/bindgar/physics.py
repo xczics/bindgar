@@ -6,6 +6,8 @@ from dataclasses import dataclass
 # physics constants
 M_SUN = 1.98847e30  # kg
 M_EARTH = 5.9722e24  # kg
+M_Moon = 7.342e22  # kg
+M_Mars = 6.4171e23  # kg
 AU2M = 1.495978707e11  # meters
 PI = 3.141592653589793
 convert_factor_from_auptu_to_kmps = 29.8457983 # 1 au/day to km/s
@@ -43,16 +45,19 @@ class AnalogCriteria:
     a_upper: float
     m_lower: float
     m_upper: float
+    a_mean: float = None
+    m_mean: float = None
     def is_analog(self, a: float, m: float, m_unit: str = "earth") -> bool:
         if m_unit == "earth":
             return (self.a_lower <= a <= self.a_upper) and (self.m_lower <= m <= self.m_upper)
         elif m_unit == "sun":
-            return (self.a_lower <= a <= self.a_upper) and (self.m_lower*M_EARTH/M_SUN <= m <= self.m_upper*M_EARTH/M_SUN)
+            return (self.a_lower <= a <= self.a_upper) and (self.m_lower * M_EARTH / M_SUN <= m <= self.m_upper * M_EARTH / M_SUN)
 
 
-DEFAULT_VENUS_ANALOG = AnalogCriteria("Venus", 0.6, 0.9, 0.6, 1.2)
-DEFAULT_EARTH_ANALOG = AnalogCriteria("Earth", 0.9, 1.4, 0.8, 1.4)
-DEFAULT_MARS_ANALOG = AnalogCriteria("Mars", 1.4, 1.9, 0.01, 0.3)
+DEFAULT_VENUS_ANALOG = AnalogCriteria("Venus", 0.6, 0.9, 0.6, 1.2, a_mean=0.72, m_mean=0.82)
+DEFAULT_EARTH_ANALOG = AnalogCriteria("Earth", 0.9, 1.4, 0.8, 1.4, a_mean=1.0, m_mean=1.0)
+DEFAULT_MARS_ANALOG = AnalogCriteria("Mars", 1.4, 1.9, 0.01, 0.3, a_mean=1.52, m_mean=0.11)
+
 
 def stastic_kde(data: Sequence[float],
                 x: np.ndarray,

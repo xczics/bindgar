@@ -1,6 +1,8 @@
 *.egg-info/
 __pycache__/
 *.pyc
+.vscode/
+examples/
 src/__pycache__/
 src/*.egg-info/
 src/bindgar/__pycache__/
