@@ -1,8 +1,8 @@
-# BINDGAR is Interface for N-body Data, especially for GENGA And REBOUND.
+# BINDGAR is Interface for N-body Data, especially for GENGA And REBOUND
 
-# Description
+## Description
 
-**Bindgar** is an interface for N-body data, especially for [GENGA](https://bitbucket.org/sigrimm/gengas) and [REBOUND](https://github.com/hannorein/rebound). The name is a recursive acronym. 
+**Bindgar** is an interface for N-body data, especially for [GENGA](https://bitbucket.org/sigrimm/gengas) and [REBOUND](https://github.com/hannorein/rebound). The name is a recursive acronym.
 
 **BINDGAR bridges these two powerful tools**:
 
@@ -25,11 +25,12 @@ It allows you to seamlessly transition your REBOUND simulations into GENGA's hig
 
 ## Devoltiliazation during the collision
 
-This package also includes the calculation of devolatilization during the collision. It uses the model from MeltScalingLaw[https://github.com/mikinakajima/MeltScalingLaw] to estimate the melting fraction during the collision. Their code are linked in `src/bindgar/devol/nakajima`. If their code changes, run `git subtree pull --prefix=src/bindgar/devol/nakajima https://github.com/mikinakajima/MeltScalingLaw.git master --squash` to update their code.
+This package also includes the calculation of devolatilization during the collision. It uses the model from [MeltScalingLaw](https://github.com/mikinakajima/MeltScalingLaw) to estimate the melting fraction during the collision. Their codes are linked in `src/bindgar/devol/nakajima`. If their code changes, run `git subtree pull --prefix=src/bindgar/devol/nakajima https://github.com/mikinakajima/MeltScalingLaw.git master --squash` to update their code.
 
 ## Declaration / 声明
 
 ### License / 许可证
+
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 
 本项目采用 **GNU通用公共许可证v3.0（GPLv3）** 发布。
@@ -37,6 +38,7 @@ This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 **All commercial uses are strictly prohibited**, including but not limited to:
 
 **明确禁止所有商业用途**，包括但不限于：
+
 - Commercial product sales or services / 商业产品销售或服务
 - Enterprise for-profit projects / 企业盈利性项目
 - Repackaging and redistribution on social media platforms as "fan benefits" or "resource packages" that require following, adding friends, or other forms of engagement to access / 在社交媒体上重新打包传播，作为需要关注、加好友等条件才能获取的"粉丝福利"或"资源整合包"
@@ -49,6 +51,7 @@ Academic research, educational institutions, and personal learning are fully per
 学术研究、教育机构和个人学习使用完全开放，无需特殊授权。
 
 ### Important Disclaimer / 重要免责声明
+
 This software package was developed with the assistance of generative AI technology and **has not undergone comprehensive, rigorous testing and verification**.
 
 本软件包是在生成式人工智能技术辅助下开发的，**未经全面、严谨的测试与验证**。
@@ -58,6 +61,7 @@ This software package was developed with the assistance of generative AI technol
 **本软件按"现状"提供，不附带任何明示或暗示的担保**。使用者应自行承担使用本软件的所有风险，作者对因使用本软件而产生的任何损失或损害不承担责任。
 
 ### Special Notice / 特别提示
+
 - **Must** independently verify and test the critical functionalities of this software / **请务必**独立的验证和测试本软件的关键功能
 - Problem reports and suggestions are welcome, but timely fixes cannot be guaranteed / 欢迎反馈问题和建议，但无法保证及时修复
 
@@ -73,7 +77,8 @@ This software package was developed with the assistance of generative AI technol
 
 **Warning**: It is an "on-the-fly" project. The author may add features or change the API at any time without notice.
 
-# 中文介绍
+## 中文介绍
+
 Bindgar 是一个专为 N 体数据打造的接口工具，特别为 [GENGA](https://bitbucket.org/sigrimm/gengas) 和 [REBOUND](https://github.com/hannorein/rebound). 这两款神器量身定制！它的名字其实是个递归缩写～
 
 **Bindgar** 为你架起一座无缝桥梁：

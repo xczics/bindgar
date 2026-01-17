@@ -93,7 +93,6 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
     ax.set_xlim(x_lim)
     ax.set_ylim(-1, 1)
     y_zeros = np.zeros_like(a_values)
-    ax.scatter(a_values, y_zeros, s=np.array(m_values) ** (2/3) * size_factor, alpha=0.6)
     if analog_criteria is not None:
         if analog_color is None:
             analog_color = ['gray']
@@ -106,14 +105,215 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
                 alpha=0.3,
                 label=f"{criteria.name} - like"
             )
+    ax.scatter(a_values, y_zeros, s=np.array(m_values) ** (2/3) * size_factor, color='blue')
     if not vi_x_tick_labels:    
         ax.set_xticklabels([])
+    else:
+        ax.set_xlabel("Semi-major axis (a.u.)")
     ax.set_yticklabels([])
-    ax.set_xticks(np.linspace(x_lim[0], x_lim[1], num=5))
     ax.set_yticks([-1, 0, 1])
-    ax.grid(True)
+    # 添加中心水平线
+    ax.axhline(0, color='gray', linestyle='-', linewidth=0.5, alpha=0.7)
+    #设置tick位置在图内
+    ax.tick_params(axis='y', which='both', direction='in')
+    #设置垂直网格线为analog中心区域，与tick独立
+    if analog_criteria is not None:
+        for criteria in analog_criteria:
+            ax.axvline(
+                criteria.a_mean if criteria.a_mean is not None else (criteria.a_lower + criteria.a_upper) / 2,
+                color='gray',
+                linestyle='--',
+                linewidth=0.5,
+                alpha=0.7,
+            )
 
 def draw_horizontal_sim_group(simulations_list: List[str],
+                              planet_like_critical: List[AnalogCriteria],
+                              plot_area: SubplotSpec,
+                              size_factor: float,
+                              mass_legend: List[tuple],
+                              analog_color: CyclicList,
+                              x_lim: tuple = (0.3, 3.0),
+                              analog_criteria: List[AnalogCriteria] = None,
+                              group_title: str = None,
+                              legend_fixed_height: float = 0.15,  # 固定图例区域高度比例
+                              title_fixed_height: float = 0.1,  # 固定标题区域高度比例
+                              ):
+    """
+    For a given group of simulation lists, draw horizontal diagrams for each group in the given plot areas.
+    It deals with:
+        1. subdivide the plot area to several sub-axes for each simulation group. The simulations are vertical stacked.
+        2. read the final particles from each simulation, and call draw_horizontal_planets_diagram to draw each simulation group.
+        3. add legends and labels.
+    
+    Args:
+        simulations_list: 模拟列表
+        planet_like_critical: 类行星标准
+        plot_area: 子图区域
+        size_factor: 大小因子
+        mass_legend: 质量图例
+        analog_color: 颜色循环列表
+        x_lim: x轴限制
+        analog_criteria: 类似行星标准
+        group_title: 组标题
+        group_idx: 当前组索引（用于对齐）
+        n_groups: 总组数
+        legend_fixed_height: 固定图例区域高度比例
+        title_fixed_height: 固定标题区域高度比例
+    """
+    n_simulations = len(simulations_list)
+    
+    # 计算高度比例
+    # 标题区域 + 模拟区域 + 图例区域
+    # 使用固定比例确保不同组对齐
+    if group_title is not None:
+        title_height = title_fixed_height
+    else:
+        title_height = 0.0
+    
+    legend_height = legend_fixed_height
+    
+    # 计算模拟区域的高度（剩余空间）
+    sim_height_ratio = 1.0 - title_height - legend_height
+    
+    # 创建高度比例列表
+    height_ratios = []
+    if title_height > 0:
+        height_ratios.append(title_height)
+    
+    # 模拟行平均分配模拟区域高度
+    for _ in range(n_simulations):
+        height_ratios.append(sim_height_ratio / n_simulations)
+    
+    if legend_height > 0 and mass_legend is not None:
+        height_ratios.append(legend_height)
+    
+    # 创建网格
+    n_rows = len(height_ratios)
+    gs = gridspec.GridSpecFromSubplotSpec(
+        n_rows, 1, 
+        subplot_spec=plot_area, 
+        hspace=0,
+        height_ratios=height_ratios
+    )
+    
+    # 创建子图
+    axes = []
+    current_row = 0
+    
+    # 1. 标题轴（如果存在）
+    if title_height > 0 and group_title is not None:
+        ax_title = plt.subplot(gs[current_row, 0])
+        axes.append(ax_title)
+        
+        # 设置标题轴
+        ax_title.set_xlim(x_lim)
+        ax_title.set_ylim(0, 1)
+        ax_title.axis('off')
+        
+        # 添加组标题
+        ax_title.text(
+            (x_lim[0] + x_lim[1]) / 2,
+            0.5,
+            group_title,
+            horizontalalignment='center',
+            verticalalignment='center',
+            fontsize=12,
+            fontweight='bold',
+        )
+        
+        current_row += 1
+    
+    # 2. 模拟轴
+    sim_axes = []
+    for i in range(n_simulations):
+        ax = plt.subplot(gs[current_row + i, 0])
+        sim_axes.append(ax)
+        axes.append(ax)
+    
+    # 绘制模拟
+    for sim_index, simulation in enumerate(simulations_list):
+        SimOutObj = SimulationOutput(simulation)
+        final_particles = get_final_particles(SimOutObj)
+        a_values, _, _, m_values = partical_orbital_array(final_particles)
+        ax = sim_axes[sim_index]
+        
+        # 只在最后一个模拟显示x轴刻度标签
+        vi_x_tick_labels = (sim_index == n_simulations - 1)
+        
+        draw_horizontal_planets_diagram(
+            a_values, m_values, size_factor, ax,
+            x_lim=x_lim,
+            analog_criteria=planet_like_critical,
+            analog_color=analog_color,
+            vi_x_tick_labels=vi_x_tick_labels,
+        )
+        
+        # 在左边添加模拟名称
+        ax.text(x_lim[0] - (x_lim[1] - x_lim[0]) * 0.01, 0.0, 
+                SimOutObj.get_input_params("Output name"), 
+                verticalalignment='center', 
+                horizontalalignment='right',
+                fontsize=8)
+    
+    # 3. 在第一个模拟轴上标注analog区域名称
+    if analog_criteria is not None and len(sim_axes) > 0:
+        ax_top = sim_axes[0]
+        for crit_index, criteria in enumerate(analog_criteria):
+            ax_top.text(
+                (criteria.a_lower + criteria.a_upper) / 2,
+                1.1,  # 略微上移，避免重叠
+                f"{criteria.name}",
+                horizontalalignment='center',
+                verticalalignment='bottom',
+                fontsize=9,
+            )
+    
+    # 4. 图例轴（如果存在）
+    if legend_height > 0 and mass_legend is not None:
+        ax_legend = plt.subplot(gs[-1, 0])
+        axes.append(ax_legend)
+        
+        # 设置图例轴范围
+        ax_legend.set_xlim(x_lim)
+        ax_legend.set_ylim(-0.5, 0.5)
+        
+        # 隐藏轴线和刻度
+        ax_legend.spines['top'].set_visible(False)
+        ax_legend.spines['right'].set_visible(False)
+        ax_legend.spines['left'].set_visible(False)
+        ax_legend.spines['bottom'].set_visible(False)
+        ax_legend.set_xticks([])
+        ax_legend.set_yticks([])
+        ax_legend.set_xticklabels([])
+        ax_legend.set_yticklabels([])
+        
+        # 设置背景透明
+        ax_legend.set_facecolor('none')
+        
+        # 添加质量图例
+        n_legend = len(mass_legend)
+        legend_x_positions = np.linspace(x_lim[0], x_lim[1], n_legend + 2)[1:-1]
+        
+        for legend_index, (mass_value, mass_label) in enumerate(mass_legend):
+            # 绘制质量点
+            ax_legend.scatter(
+                legend_x_positions[legend_index], -0.15,
+                s=mass_value ** (2/3) * size_factor,  
+                color='blue',
+                zorder=5
+            )
+            
+            # 添加标签
+            ax_legend.text(
+                legend_x_positions[legend_index], -0.3,
+                mass_label,
+                horizontalalignment='center',
+                verticalalignment='top',
+                fontsize=8
+            )
+    
+def draw_horizontal_sim_group_old(simulations_list: List[str],
                               planet_like_critical: List[AnalogCriteria],
                               plot_area: SubplotSpec,
                               size_factor: float,
@@ -124,22 +324,17 @@ def draw_horizontal_sim_group(simulations_list: List[str],
                               group_title: str = None,
                             ):
     """
-    For a given group of simulation lists, draw horizontal diagrams for each group in the given plot areas.
-    It deals with:
-        1. subdivide the plot area to several sub-axes for each simulation group. The simulations are vertical stacked.
-        2. read the final particles from each simulation, and call draw_horizontal_planets_diagram to draw each simulation group.
-        3. add legends and labels.
+    It is the draft verion of `draw_horizontal_sim_group` before AI edition, kept for reference.
     """
     n_simulations = len(simulations_list)
-    # 左边留出一点空白放文字
-    gs = gridspec.GridSpecFromSubplotSpec(n_simulations + 1, 1, subplot_spec=plot_area, hspace=0, left=0.25, right=0.95, top=0.85, bottom=0.05)
-    axes = [plt.subplot(gs[i, 0]) for i in range(n_simulations)]
+    gs = gridspec.GridSpecFromSubplotSpec(n_simulations + 1, 1, subplot_spec=plot_area, hspace=0)
+    axes = [plt.subplot(gs[i, 0]) for i in range(n_simulations + 1)]
     for sim_index, simulation in enumerate(simulations_list):
         SimOutObj = SimulationOutput(simulation)
         final_particles = get_final_particles(SimOutObj)
         a_values, _, _, m_values = partical_orbital_array(final_particles)
         ax = axes[sim_index]
-        vi_x_tick_labels = (sim_index == n_simulations - 2)
+        vi_x_tick_labels = (sim_index == n_simulations - 1)
         draw_horizontal_planets_diagram(
             a_values, m_values, size_factor, ax,
             x_lim=x_lim,
@@ -159,10 +354,11 @@ def draw_horizontal_sim_group(simulations_list: List[str],
             ax_top.text(
                 (criteria.a_lower + criteria.a_upper) / 2,
                 1.05,
-                f"{criteria.name} - like",
-                color=analog_color[crit_index] if analog_color is not None else 'gray',
+                f"{criteria.name}",
+                #color=analog_color[crit_index] if analog_color is not None else 'gray',
                 horizontalalignment='center',
                 verticalalignment='bottom',
+                fontsize=6,
             )
     # 添加质量图例
     if mass_legend is not None:
@@ -174,8 +370,9 @@ def draw_horizontal_sim_group(simulations_list: List[str],
             ax_legend.scatter(
                 legend_x_positions[legend_index], 0.3,
                 s=mass_value ** (2/3) * size_factor,
-                alpha=0.6,
                 label=mass_label,
+                # set color the same as the points, that is, the default color in matplotlib
+                color='blue',
             )
             ax_legend.text(
                 legend_x_positions[legend_index], -0.3,
@@ -186,18 +383,22 @@ def draw_horizontal_sim_group(simulations_list: List[str],
     ax_legend.set_ylim(-1, 1)
     ax_legend.set_xlim(x_lim)
     #删去坐标轴、刻度和框线
-    ax_legend.spines['top'].set_visible(False)
     ax_legend.spines['right'].set_visible(False)
     ax_legend.spines['left'].set_visible(False)
     ax_legend.spines['bottom'].set_visible(False)
     ax_legend.set_xticklabels([])
     ax_legend.set_yticklabels([])
+    # 不要刻度
+    ax_legend.set_xticks([])
+    ax_legend.set_yticks([])
+    # 设置背景为透明，不要盖住上面的刻度
+    ax_legend.set_facecolor('none')
     # 顶部轴添加组标题， 注意，不要盖住analog名称
     if group_title is not None:
         ax_title = axes[0]
         ax_title.text(
             (x_lim[0] + x_lim[1]) / 2,
-            1.15,
+            2.0,
             group_title,
             horizontalalignment='center',
             verticalalignment='bottom',
@@ -289,8 +490,8 @@ def main():
 
 @register_command("final-planets",help_msg="draw final terrestrial planets.")
 def final_planets():
-    print("Not implemented yet.")
-    exit()
+    #print("Not implemented yet.")
+    #exit()
     DEFAULT_PARAMS = {
         "simulations_lists" : {
             "default": None,
@@ -304,12 +505,12 @@ def final_planets():
             "type": bool,
         },
         "a_start" : {
-            "default": 0.3,
+            "default": 0.1,
             "help": "starting semi-major axis for the plot (in a.u.)",
             "type": float,
         },
         "a_end" : {
-            "default": 3.0,
+            "default": 2.5,
             "help": "ending semi-major axis for the plot (in a.u.)",
             "type": float,
         },
@@ -358,16 +559,17 @@ def final_planets():
     else:
         planet_like_critical = [AnalogCriteria(**crit) for crit in planet_like_critical]
     label = input_params["label"]
+    label_mass_scale = input_params["label_mass_scale"]
     if label_mass_scale is None:
-        label_mass_scale = [(M_Moon / M_EARTH, "Moon"), (M_Mars / M_EARTH, "Mars"), (1.0, "Earth"), (10.0, "10 M_earth")]
+        label_mass_scale = [(M_Moon / M_EARTH, "Moon"), (M_Mars / M_EARTH, "Mars"), (1.0, "Earth"), (5.0, "5 Earth")]
     size_of_earth = input_params["size_of_earth"]
     figure_file = input_params["figure_file"]
     if input_params["group_mode"]:
         n_groups = len(simulations_lists)
-        plt.figure(figsize=(10, 4 * n_groups))
-        gs = gridspec.GridSpec(n_groups, 1, hspace=0.4)
+        plt.figure(figsize=(4 * n_groups,10))
+        gs = gridspec.GridSpec(1,n_groups, wspace=0.4)
         for group_index, sim_group in enumerate(simulations_lists):
-            plot_area = gs[group_index, 0]
+            plot_area = gs[0, group_index]
             group_title = label[group_index] if label is not None else None
             draw_horizontal_sim_group(
                 sim_group,
