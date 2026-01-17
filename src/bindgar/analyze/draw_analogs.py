@@ -136,7 +136,7 @@ def draw_horizontal_sim_group(simulations_list: List[str],
                               x_lim: tuple = (0.3, 3.0),
                               analog_criteria: List[AnalogCriteria] = None,
                               group_title: str = None,
-                              legend_fixed_height: float = 0.1,  # 固定图例区域高度比例
+                              legend_fixed_height: float = 0.15,  # 固定图例区域高度比例
                               title_fixed_height: float = 0.1,  # 固定标题区域高度比例
                               ):
     """
@@ -298,7 +298,7 @@ def draw_horizontal_sim_group(simulations_list: List[str],
         for legend_index, (mass_value, mass_label) in enumerate(mass_legend):
             # 绘制质量点
             ax_legend.scatter(
-                legend_x_positions[legend_index], 0.0,
+                legend_x_positions[legend_index], -0.15,
                 s=mass_value ** (2/3) * size_factor,  
                 color='blue',
                 zorder=5
