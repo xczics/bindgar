@@ -25,11 +25,12 @@ It allows you to seamlessly transition your REBOUND simulations into GENGA's hig
 
 ## Devoltiliazation during the collision
 
-This package also includes the calculation of devolatilization during the collision. It uses the model from MeltScalingLaw[https://github.com/mikinakajima/MeltScalingLaw] to estimate the melting fraction during the collision. Their code are linked in `src/bindgar/devol/nakajima`. If their code changes, run `git subtree pull --prefix=src/bindgar/devol/nakajima https://github.com/mikinakajima/MeltScalingLaw.git master --squash` to update their code.
+This package also includes the calculation of devolatilization during the collision. It uses the model from [MeltScalingLaw](https://github.com/mikinakajima/MeltScalingLaw) to estimate the melting fraction during the collision. Their codes are linked in `src/bindgar/devol/nakajima`. If their code changes, run `git subtree pull --prefix=src/bindgar/devol/nakajima https://github.com/mikinakajima/MeltScalingLaw.git master --squash` to update their code.
 
 ## Declaration / 声明
 
 ### License / 许可证
+
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 
 本项目采用 **GNU通用公共许可证v3.0（GPLv3）** 发布。
