@@ -45,7 +45,7 @@ def main():
         },
         "label" : {
             "default": None,
-            "help": "label for the plot, list of str if group_mode is True",
+            "help": "label for the plot, list of str if group_mode is True, else str",
             "type": list,
         },
         "figure_file" : {

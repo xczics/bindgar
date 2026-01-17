@@ -1,3 +1,50 @@
+"""
+This module provides functionality for handling simulation output data, including loading, 
+filtering, and analyzing simulation results. It includes a `SimulationOutput` class that 
+provides methods to retrieve simulation parameters, load output data, calculate total mass 
+and particle counts, and generate color mappings based on simulation properties.
+Classes:
+    - SimulationOutput: A class to manage and process simulation output data.
+Constants:
+    - DEFAULT_Ejction_Format: Default format for ejection data.
+    - DEFAULT_Collisions_Format: Default format for collision data.
+Functions:
+    - SimulationOutput.__init__(path: str):
+        Initializes the SimulationOutput object with the given simulation directory path.
+    - SimulationOutput.get_input_params(params: Union[str, List[str]]) -> Union[str, List[str]]:
+        Retrieves input parameters from the simulation's `param.dat` file.
+    - SimulationOutput.load_last_output() -> SimulationOutputData:
+        Loads the last output file from the simulation directory, considering error files if present.
+    - SimulationOutput.get_init_data() -> SimulationOutputData:
+        Retrieves the initial simulation data from the input file.
+    - SimulationOutput.collisions(collision_format: str = DEFAULT_Collisions_Format) -> SimulationOutputData:
+        Loads collision data from the simulation directory.
+    - SimulationOutput.filter_final_indexes(filter_func: callable) -> List[int]:
+        Filters and returns the indexes of particles in the final output based on a given filter function.
+    - SimulationOutput._get_total_mass(data: SimulationOutputData, skip_indexes: List[int] = None) -> float:
+        Calculates the total mass of particles in the given data, optionally skipping specified indexes.
+    - SimulationOutput._get_num_particles(data: SimulationOutputData, skip_indexes: List[int] = None) -> int:
+        Counts the number of particles in the given data, optionally skipping specified indexes.
+    - SimulationOutput.get_init_total_mass(skip_indexes: List[int] = None) -> float:
+        Retrieves the total initial mass of particles, with optional caching.
+    - SimulationOutput.get_final_total_mass(skip_indexes: List[int] = None) -> float:
+        Retrieves the total final mass of particles, with optional caching.
+    - SimulationOutput.get_init_num_particles(skip_indexes: List[int] = None) -> int:
+        Retrieves the initial number of particles, with optional caching.
+    - SimulationOutput.get_final_num_particles(skip_indexes: List[int] = None) -> int:
+        Retrieves the final number of particles, with optional caching.
+    - SimulationOutput.magic_color(properties: List = None, value_range: List = None) -> str:
+        Generates a color string based on simulation properties, using the LAB color space.
+Dependencies:
+    - typing: For type annotations.
+    - glob: For file pattern matching.
+    - os.path: For file path manipulations.
+    - functools: For caching functions.
+    - math: For mathematical operations.
+    - .datahandle: For handling simulation data.
+    - .physics: For physical constants.
+    - .common: For color conversion utilities.
+"""
 from typing import List, Union, Any
 import glob
 from os import path
