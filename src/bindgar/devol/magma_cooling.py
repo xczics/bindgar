@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, overload, Tuple, Final
 from dataclasses import dataclass
 import math
 from ..physics import Stefan_Boltzmann, G, R_gas
@@ -196,11 +196,15 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
     t_total = 0.0
     M_loss_total = 0.0
     C = 1.0
+    T_array = []
+    t_total_array = []
+    M_loss_array = []
+    C_array = []
     if not final_only:
-        T_array = [T]
-        t_total_array = [t_total]
-        M_loss_array = [M_loss_total]
-        C_array = [C]
+        T_array.append(T)
+        t_total_array.append(t_total)
+        M_loss_array.append(M_loss_total)
+        C_array.append(C)
     while T > 1200:
         cooling_rate = pTpt(T, M_l, params)
         Dt = dT / cooling_rate
@@ -212,7 +216,7 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
         if not final_only:
             T_array.append(T)
             t_total_array.append(t_total)
-            M_loss_array.append(M_loss)
+            M_loss_array.append(M_loss_total)
             C_array.append(C)
     if final_only:
         return T, t_total, M_loss_total, C
