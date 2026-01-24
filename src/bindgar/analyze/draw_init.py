@@ -4,7 +4,7 @@ import numpy as np  # type: ignore
 
 from ..vi import scatter_positions, scatter_ae, scatter_am
 from ..datahandle import SimulationOutputData
-from ..input import InputLoader  # type: ignore
+from ..input import InputLoader,InputAcceptable
 from ..cli import register_command
 from ..physics import calculate_orbital
 
@@ -12,7 +12,7 @@ from typing import List, Union, Dict, Any
 
 @register_command("draw-init")
 def main():
-    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
+    DEFAULT_PARAMS: InputAcceptable = {
         "init_dat" : {
             "default": None,
             "help": "File name of the initial data",

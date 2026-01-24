@@ -1,4 +1,4 @@
-from ..input import InputLoader  # type: ignore
+from ..input import InputLoader,InputAcceptable
 from os import path
 import numpy as np  # type: ignore
 
@@ -413,7 +413,7 @@ def draw_horizontal_sim_group_old(simulations_list: List[str],
 
 @register_command("draw-analogs")
 def main():
-    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
+    DEFAULT_PARAMS: InputAcceptable = {
         "simulations_lists" : {
             "default": None,
             "help": "list of simulation paths",
@@ -496,7 +496,7 @@ def main():
 def final_planets():
     #print("Not implemented yet.")
     #exit()
-    DEFAULT_PARAMS:Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
+    DEFAULT_PARAMS:InputAcceptable = {
         "simulations_lists" : {
             "default": None,
             "help": "list of simulation paths, if group_mode is True, it should be list of list",

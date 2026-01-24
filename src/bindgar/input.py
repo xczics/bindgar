@@ -24,6 +24,8 @@ def deep_update(original: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, 
             original[key] = value
     return original
 
+InputAcceptable = Dict[str, Union[Dict[str, Any], 'InputLoader']]
+
 class InputLoader:
     """统一配置加载器（支持嵌套字典定义参数）
     功能：
@@ -34,7 +36,7 @@ class InputLoader:
 
     def __init__(
         self,
-        param_defs: Dict[str, Union[Dict[str, Any], 'InputLoader']],
+        param_defs: InputAcceptable,
         description: str = "Application Configuration"
     ):
         """

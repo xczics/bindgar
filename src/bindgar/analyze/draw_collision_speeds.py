@@ -1,4 +1,4 @@
-from ..input import InputLoader  # type: ignore
+from ..input import InputLoader,InputAcceptable
 from os import path
 import numpy as np  # type: ignore
 
@@ -21,7 +21,7 @@ def tell_m_in_range(m_start, m_end, skip_gass_giant: bool = False, gas_giant_ind
 
 @register_command("draw-collision-speeds")
 def main():
-    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
+    DEFAULT_PARAMS: InputAcceptable = {
         "simulations_lists" : {
             "default": None,
             "help": "list of simulation paths",

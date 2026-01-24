@@ -189,8 +189,8 @@ def OutPutSim(sim: rebound.Simulation, output_file: str, format_str: str) -> Non
 
 @register_command("setup-generate",help_msg="Generate initial conditions.")
 def main():
-    from .input import InputLoader
-    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']]= {
+    from .input import InputLoader,InputAcceptable
+    DEFAULT_PARAMS: InputAcceptable= {
     "N_emb": {
         "default": 10,
         "help": "Number of embryos in the simulation",
