@@ -52,11 +52,11 @@ Usage:
     `setup-generate` CLI command.
 
 """
-import rebound # type: ignore
+import rebound
 import numpy as np # type: ignore
 #import pandas as pd
 import os 
-from typing import List, Tuple, Union, Literal
+from typing import List, Tuple, Union, Literal, Dict, Any
 from ctypes import c_uint32
 from .physics import DENSITY2K, M_EARTH, M_SUN
 from .datahandle import SimulationOutputData
@@ -79,7 +79,7 @@ class ParticleGroupParams:
     e2i_factor: float = 0.5
     a_factor: float = -1.5
 
-def rand_powerlaw(min_v: float, max_v: float, factor: float, N: int) -> float:
+def rand_powerlaw(min_v: float, max_v: float, factor: float, N: int) -> np.ndarray:
     a = np.random.uniform(0, 1, N)
     if factor > 0:
         raise ValueError("Powerlaw factor must be negative.")
@@ -90,13 +90,13 @@ def rand_powerlaw(min_v: float, max_v: float, factor: float, N: int) -> float:
         value = ((max_v**power - min_v**power) * a + min_v**power) ** (1.0 / power)
     return value
 
-def rand_gaussian(mean: float, sigma: float, N: int) -> float:
+def rand_gaussian(mean: float, sigma: float, N: int) -> np.ndarray:
     return np.random.normal(mean, sigma, N)
 
-def rand_uniform(minimum: float, maximum: float, N: int) -> float:
+def rand_uniform(minimum: float, maximum: float, N: int) -> np.ndarray:
     return np.random.uniform(0, 1, N) * (maximum - minimum) + minimum
 
-def rand_rayleigh(sigma: float, N: int) -> float:
+def rand_rayleigh(sigma: float, N: int) -> np.ndarray:
     u = np.random.uniform(0, 1, N)
     return sigma * np.sqrt(-2.0 * np.log(1.0 - u))
 
@@ -171,14 +171,14 @@ def OutPutSim(sim: rebound.Simulation, output_file: str, format_str: str) -> Non
             p = sim.particles[i]
             sun = sim.particles[0]
             data_dict = {
-                "x": p.x - sun.x,
-                "y": p.y - sun.y,
-                "z": p.z - sun.z,
-                "vx": p.vx - sun.vx,
-                "vy": p.vy - sun.vy,
-                "vz": p.vz - sun.vz,
-                "m": p.m,
-                "r": p.r,
+                "x": p.x - sun.x, #type: ignore
+                "y": p.y - sun.y, #type: ignore
+                "z": p.z - sun.z, #type: ignore
+                "vx": p.vx - sun.vx, #type: ignore
+                "vy": p.vy - sun.vy, #type: ignore
+                "vz": p.vz - sun.vz, #type: ignore
+                "m": p.m, #type: ignore
+                "r": p.r, #type: ignore
             }
             # double check if format_str need more parameters
             attr_names = outdata.get_names()
@@ -190,7 +190,7 @@ def OutPutSim(sim: rebound.Simulation, output_file: str, format_str: str) -> Non
 @register_command("setup-generate",help_msg="Generate initial conditions.")
 def main():
     from .input import InputLoader
-    DEFAULT_PARAMS = {
+    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']]= {
     "N_emb": {
         "default": 10,
         "help": "Number of embryos in the simulation",

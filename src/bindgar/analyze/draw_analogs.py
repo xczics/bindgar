@@ -5,12 +5,13 @@ import numpy as np  # type: ignore
 from ..common import default_colors, CyclicList
 from ..physics import AnalogCriteria, calculate_orbital, M_SUN, M_EARTH, M_Mars, M_Moon
 from ..output import SimulationOutput
-from typing import List, Union
+from typing import List, Union, Dict, Any
 from ..cli import register_command
 
 import matplotlib.pyplot as plt  # type: ignore
 import matplotlib.gridspec as gridspec  # type: ignore
 from matplotlib.gridspec import SubplotSpec  # type: ignore
+from matplotlib.axes import Axes
 
 def get_final_particles(SimulationOutputObject: SimulationOutput,
                         gas_giant_indexes: List[int] = [-1],
@@ -39,12 +40,12 @@ def partical_orbital_array(partical_lists: List[dict]):
         m_array.append(part["m"] * M_SUN / M_EARTH)
     return np.array(a_array), np.array(e_array), np.array(i_array), np.array(m_array)
 
-def draw_analogs(simulations_lists: List[str], color_map: List[str], 
+def draw_analogs(simulations_lists: List[str], color_map: List[str]|CyclicList, 
                   planet_like_critical: List[AnalogCriteria], a_start: float, 
                   a_end: float, m_start: float, m_end: float, color_analogs: List[str],
                   figure_file: str = "analogs_plot.png",
                   auto_color: bool = False,
-                  color_params: List[List] = None):
+                  color_params: List[List]|None = None):
     plt.figure(figsize=(10, 8))
     ax = plt.gca()
     for sim_index, simulation in enumerate(simulations_lists):
@@ -81,10 +82,10 @@ def draw_analogs(simulations_lists: List[str], color_map: List[str],
 def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
                                     m_values: Union[List[float],np.ndarray],
                                     size_factor: float,
-                                    ax: plt.Axes,
+                                    ax: Axes,
                                     x_lim: tuple = (0.3, 3.0),
-                                    analog_criteria: List[AnalogCriteria] = None,
-                                    analog_color: list = None,
+                                    analog_criteria: List[AnalogCriteria]|None = None,
+                                    analog_color: list|None|CyclicList = None,
                                     vi_x_tick_labels: bool = False,
                                     ):
     """
@@ -96,7 +97,10 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
     if analog_criteria is not None:
         if analog_color is None:
             analog_color = ['gray']
-        analog_color = CyclicList(analog_color)
+        if isinstance(analog_color,list):
+            analog_color = CyclicList(analog_color)
+        if not isinstance(analog_color,CyclicList):
+            raise ValueError("analog_color should be tranformable to CyclicList type")
         for crit_index, criteria in enumerate(analog_criteria):
             ax.fill_betweenx(
                 [-1, 1],
@@ -134,8 +138,8 @@ def draw_horizontal_sim_group(simulations_list: List[str],
                               mass_legend: List[tuple],
                               analog_color: CyclicList,
                               x_lim: tuple = (0.3, 3.0),
-                              analog_criteria: List[AnalogCriteria] = None,
-                              group_title: str = None,
+                              analog_criteria: List[AnalogCriteria]|None = None,
+                              group_title: str|None = None,
                               legend_fixed_height: float = 0.15,  # 固定图例区域高度比例
                               title_fixed_height: float = 0.1,  # 固定标题区域高度比例
                               ):
@@ -320,8 +324,8 @@ def draw_horizontal_sim_group_old(simulations_list: List[str],
                               mass_legend: List[tuple],
                               analog_color: CyclicList ,
                               x_lim: tuple = (0.3, 3.0),
-                              analog_criteria: List[AnalogCriteria] = None,
-                              group_title: str = None,
+                              analog_criteria: List[AnalogCriteria]|None = None,
+                              group_title: str|None = None,
                             ):
     """
     It is the draft verion of `draw_horizontal_sim_group` before AI edition, kept for reference.
@@ -409,7 +413,7 @@ def draw_horizontal_sim_group_old(simulations_list: List[str],
 
 @register_command("draw-analogs")
 def main():
-    DEFAULT_PARAMS = {
+    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
         "simulations_lists" : {
             "default": None,
             "help": "list of simulation paths",
@@ -492,7 +496,7 @@ def main():
 def final_planets():
     #print("Not implemented yet.")
     #exit()
-    DEFAULT_PARAMS = {
+    DEFAULT_PARAMS:Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
         "simulations_lists" : {
             "default": None,
             "help": "list of simulation paths, if group_mode is True, it should be list of list",

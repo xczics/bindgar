@@ -8,11 +8,11 @@ from ..input import InputLoader  # type: ignore
 from ..cli import register_command
 from ..physics import calculate_orbital
 
-from typing import List, Union
+from typing import List, Union, Dict, Any
 
 @register_command("draw-init")
 def main():
-    DEFAULT_PARAMS = {
+    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
         "init_dat" : {
             "default": None,
             "help": "File name of the initial data",

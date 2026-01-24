@@ -1,5 +1,5 @@
 from math import acos
-from typing import Tuple, Sequence, Union
+from typing import Tuple, Sequence, Union, Optional, Iterable
 import numpy as np  # type: ignore
 from dataclasses import dataclass
 
@@ -48,13 +48,15 @@ class AnalogCriteria:
     a_upper: float
     m_lower: float
     m_upper: float
-    a_mean: float = None
-    m_mean: float = None
+    a_mean: Optional[float] = None
+    m_mean: Optional[float] = None
     def is_analog(self, a: float, m: float, m_unit: str = "earth") -> bool:
         if m_unit == "earth":
             return (self.a_lower <= a <= self.a_upper) and (self.m_lower <= m <= self.m_upper)
         elif m_unit == "sun":
             return (self.a_lower <= a <= self.a_upper) and (self.m_lower * M_EARTH / M_SUN <= m <= self.m_upper * M_EARTH / M_SUN)
+        else:
+            raise ValueError(f"Unknown m_unit {m_unit}.")
 
 
 DEFAULT_VENUS_ANALOG = AnalogCriteria("Venus", 0.6, 0.9, 0.6, 1.2, a_mean=0.72, m_mean=0.82)
@@ -62,7 +64,7 @@ DEFAULT_EARTH_ANALOG = AnalogCriteria("Earth", 0.9, 1.4, 0.8, 1.4, a_mean=1.0, m
 DEFAULT_MARS_ANALOG = AnalogCriteria("Mars", 1.4, 1.9, 0.01, 0.3, a_mean=1.52, m_mean=0.11)
 
 
-def stastic_kde(data: Sequence[float],
+def stastic_kde(data: np.ndarray,
                 x: np.ndarray,
                 sigma: Union[float, str] = 'auto',
                 auto_sigma_factor: float = 0.5,
@@ -70,11 +72,14 @@ def stastic_kde(data: Sequence[float],
     if isinstance(sigma, str):
         if sigma == 'auto':
             data_std = np.std(data)
-            sigma = data_std * auto_sigma_factor
+            sigma_value = data_std * auto_sigma_factor
         else:
             raise ValueError("Unknown sigma string value")
+    else:
+        sigma_value = float(sigma)
+
     out = np.zeros_like(x)
     for d in data:
-        out += np.exp(-0.5 * ((x - d) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+        out += np.exp(-0.5 * ((x - d) / sigma_value) ** 2) / (sigma * np.sqrt(2 * np.pi))
     out /= len(data)
     return out

@@ -3,13 +3,14 @@ import os
 import inspect
 import importlib
 import pkgutil
+from typing import Callable
 
 class SubCommandScriptBinder:
     def __init__(self):
         self.binding_dict = {}
         self._subparsers_added = False
     
-    def bind(self, command_name: str, script_name: str, running_obj: callable, help_msg: str = ""):
+    def bind(self, command_name: str, script_name: str, running_obj: Callable, help_msg: str = ""):
         if help_msg == "":
             help_msg = f"Equals to run the script `python {script_name}`"
         self.binding_dict[command_name] = [script_name, running_obj, help_msg]

@@ -45,7 +45,7 @@ Dependencies:
     - .physics: For physical constants.
     - .common: For color conversion utilities.
 """
-from typing import List, Union, Any
+from typing import List, Union, Any, Callable, Optional, overload
 import glob
 from os import path
 from .datahandle import SimulationOutputData, pharse_format, string2data
@@ -61,6 +61,11 @@ class SimulationOutput:
     def __init__(self, path: str):
         self.path = path
         self.input_params = {}
+    
+    @overload
+    def get_input_params(self, params: str) -> str: ...
+    @overload
+    def get_input_params(self, params: List[str]) -> List[str]: ...
     
     def get_input_params(self, params: Union[str,List[str]]) -> Union[str, List[str]]:
         required_params = [params] if isinstance(params, str) else params
@@ -124,7 +129,7 @@ class SimulationOutput:
         collision_file = path.join(self.path, f"Collisions{self.get_input_params('Output name')}.dat")
         return SimulationOutputData(collision_file, collision_format, mode="r", skip_header=False)
     
-    def filter_final_indexes(self, filter_func: callable) -> List[int]:
+    def filter_final_indexes(self, filter_func: Callable) -> List[int]:
         last_output = self.load_last_output()
         final_indexes = []
         for data in last_output:
@@ -132,7 +137,7 @@ class SimulationOutput:
                 final_indexes.append(data["i"])
         return final_indexes
     
-    def _get_total_mass(self, data: SimulationOutputData, skip_indexes: List[int] = None) -> float:
+    def _get_total_mass(self, data: SimulationOutputData, skip_indexes: List[int]|None = None) -> float:
         if skip_indexes is None:
             skip_indexes = [-1]
         total_mass = 0.0
@@ -147,7 +152,7 @@ class SimulationOutput:
             idx += 1
         return total_mass
     
-    def _get_num_particles(self, data: SimulationOutputData, skip_indexes: List[int] = None) -> int:
+    def _get_num_particles(self, data: SimulationOutputData, skip_indexes: List[int]|None = None) -> int:
         if skip_indexes is None:
             skip_indexes = [-1]
         total_num = 0
@@ -163,19 +168,19 @@ class SimulationOutput:
         return total_num 
     
     @lru_cache(maxsize=2)
-    def get_init_total_mass(self, skip_indexes: List[int] = None) -> float:
+    def get_init_total_mass(self, skip_indexes: List[int]|None = None) -> float:
         return self._get_total_mass(self.get_init_data(), skip_indexes)
     @lru_cache(maxsize=2)
-    def get_final_total_mass(self, skip_indexes: List[int] = None) -> float:
+    def get_final_total_mass(self, skip_indexes: List[int]|None = None) -> float:
         return self._get_total_mass(self.load_last_output(), skip_indexes)
     @lru_cache(maxsize=2)
-    def get_init_num_particles(self, skip_indexes: List[int] = None) -> int:
+    def get_init_num_particles(self, skip_indexes: List[int]|None = None) -> int:
         return self._get_num_particles(self.get_init_data(),skip_indexes)
     @lru_cache(maxsize=2)
-    def get_final_num_particles(self, skip_indexes: List[int] = None) -> int:
+    def get_final_num_particles(self, skip_indexes: List[int]|None = None) -> int:
         return self._get_num_particles(self.load_last_output(),skip_indexes)
 
-    def magic_color(self, properties: List = None, value_range: List = None) -> str:
+    def magic_color(self, properties: List|None = None, value_range: List|None = None) -> str:
         """
         It is a magic function, it can auto-select color based on the properties of the simulation.
         The function select color in an LAB color space, and set color with L, r and theta parameters,

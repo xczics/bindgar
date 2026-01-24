@@ -8,7 +8,7 @@ from ..output import SimulationOutput
 from ..physics import M_SUN, M_EARTH, convert_factor_from_auptu_to_kmps, AnalogCriteria, stastic_kde
 from ..cli import register_command
 
-from typing import List, Union
+from typing import List, Union, Dict, Any
 
 def tell_m_in_range(m_start, m_end, skip_gass_giant: bool = False, gas_giant_indexes: List[int] = [-1]):
     def inner(part):
@@ -21,7 +21,7 @@ def tell_m_in_range(m_start, m_end, skip_gass_giant: bool = False, gas_giant_ind
 
 @register_command("draw-collision-speeds")
 def main():
-    DEFAULT_PARAMS = {
+    DEFAULT_PARAMS: Dict[str, Union[Dict[str, Any], 'InputLoader']] = {
         "simulations_lists" : {
             "default": None,
             "help": "list of simulation paths",

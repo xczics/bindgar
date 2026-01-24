@@ -1,3 +1,4 @@
+from typing import Optional
 from dataclasses import dataclass
 import math
 from ..physics import Stefan_Boltzmann, G, R_gas
@@ -11,7 +12,7 @@ class MagmaOceanParameters:
     k: float = 3 # Thermal Conductivity, W m-1 K-1
     C_p: float = 1200 # Specific Heat Capacity, J kg-1 K-1
     alpha_V: float = 2e-5 # Thermal Expansivity, K-1
-    g_s: float = None # Surface Gravity, m s-2
+    g_s: Optional[float] = None # Surface Gravity, m s-2
     r: float = 1.7e6 # Planet Radius, m
     L: float = 5e6 # Latent Heat of Fusion, J kg-1
     M_mol: float = 0.04 # Molar Mass of the Atmosphere, kg mol-1
@@ -38,7 +39,8 @@ def T_from_T_s(T_s: float, parameter: MagmaOceanParameters) -> float:
     Returns:
         float: Average temperature of the magma ocean in K.
     """
-    A = parameter.kapa * parameter.v / (parameter.rho_M * parameter.g_s * parameter.alpha_V )
+    A = parameter.kapa * parameter.v / (parameter.rho_M * parameter.g_s # type: ignore
+                                         * parameter.alpha_V ) 
     B = 2 * Stefan_Boltzmann / parameter.k
     Result_from_Calogero = T_s * (1 + T_s ** 2 * A ** (1/4) * B ** (3/4))
     return Result_from_Calogero
@@ -160,25 +162,23 @@ def distribution_coefficient (T: float, version: str='Hin_2017_K') -> float:
     else:
         raise ValueError(f"Unknown version {version} for distribution_coefficient")
 
-def step_concentration (T: float, M_l: float, Dt: float, params: MagmaOceanParameters,version_D: str='Hin_2017_K') -> float:
+def step_concentration (T: float, M_l: float, Mass_loss_step:float,version_D: str='Hin_2017_K') -> float:
     r""" Calculate the concentration step of the volatile in the magma ocean during a time step Dt.
     C_step/C =  \frac{M_l}{M_l + (\frac{\partial M_l}{\partial t}) \Delta t (D - 1)}
     where C is the current concentration, D is the distribution coefficient, pMpt is the mass loss rate, M_l is the mass of the magma ocean.
     Args:
         T (float): Temperature in K.
         M_l (float): Mass of the magma ocean in kg.
-        Dt (float): Time step in s.
-        params (MagmaOceanParameters): Parameters of the magma ocean.
+        Mass_loss_step (float): The loss of bulk mass during the step.
         version_D (str): Version of the distribution coefficient.
     Returns:
         float: Concentration step ratio.
     """
     D = distribution_coefficient (T, version_D)
-    Mass_loss_rate = pMpt (T, params)
-    C_step_factor = M_l / (M_l + Mass_loss_rate * Dt * (D - 1))
+    C_step_factor = M_l / (M_l + Mass_loss_step * (D - 1))
     return C_step_factor
 
-def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameters, dT: float=0.1, T_end: float=1200):
+def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameters, dT: float=0.1, T_end: float=1200, final_only: bool=True) -> tuple:
     r""" Simulate the devolatilization process of the magma ocean from initial temperature T_init and initial mass M_l_init.
     Args:
         T_init (float): Initial temperature in K.
@@ -193,17 +193,31 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
     """
     T = T_init
     M_l = M_l_init
-    t_total = 0
-    M_loss_total = 0
-    C = 1
+    t_total = 0.0
+    M_loss_total = 0.0
+    C = 1.0
+    if not final_only:
+        T_array = [T]
+        t_total_array = [t_total]
+        M_loss_array = [M_loss_total]
+        C_array = [C]
     while T > 1200:
         cooling_rate = pTpt(T, M_l, params)
         Dt = dT / cooling_rate
         t_total += Dt
-        M_loss_total += pMpt(T,params) * Dt
-        C *= step_concentration (T, M_l, Dt, params)
+        M_loss_step = pMpt(T,params) * Dt
+        M_loss_total += M_loss_step
+        C *= step_concentration (T, M_l, M_loss_step)
         T -= dT
-    return t_total, M_loss_total, C
+        if not final_only:
+            T_array.append(T)
+            t_total_array.append(t_total)
+            M_loss_array.append(M_loss)
+            C_array.append(C)
+    if final_only:
+        return T, t_total, M_loss_total, C
+    else:
+        return T_array, t_total_array, M_loss_array, C_array
 
 if __name__ == "__main__":
     params = MagmaOceanParameters(r=1e6)
@@ -217,8 +231,9 @@ if __name__ == "__main__":
         cooling_rate = pTpt(T, M_l, params)
         Dt = dT / cooling_rate
         t += Dt
-        M_loss += pMpt(T,params) * Dt
-        C *= step_concentration (T, M_l, Dt, params)
+        M_loss_step = pMpt(T,params) * Dt
+        M_loss += M_loss_step
+        C *= step_concentration (T, M_l, M_loss_step)
         T -= dT
     print(t/(3600*24*365), M_loss/M_l, C, 1 - C * M_l / (0.1 * params.M_tot))
     # test the parameter of the earth, and check the g_surf is approximately 9.8 m/s2

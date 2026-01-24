@@ -1,5 +1,6 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from matplotlib.axes import Axes
+import numpy as np  # type: ignore
 from numpy import ndarray
 from .physics import M_SUN, M_EARTH
 
@@ -31,7 +32,7 @@ def scatter_positions(ax: Axes, xym_arrays: ndarray, **kwargs) -> None:
 
 def scatter_ae(ax: Axes, 
                a_array: ndarray, e_array: ndarray, 
-               m_array: ndarray = None,
+               m_array: Optional[ndarray] = None,
                **kwargs) -> None:
     """Scatter plot of semi-major axis vs eccentricity.
     Args:
