@@ -21,8 +21,8 @@ import matplotlib as mpl
 from scipy.interpolate import interp1d
 
 
-rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
-rc('text', usetex=True)
+#rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+#rc('text', usetex=True)
 
 # TODO - error with vlarge is not quite right
 # magma ocean depth is fixed at psi = 0

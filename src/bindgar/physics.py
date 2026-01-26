@@ -80,6 +80,6 @@ def stastic_kde(data: np.ndarray,
 
     out = np.zeros_like(x)
     for d in data:
-        out += np.exp(-0.5 * ((x - d) / sigma_value) ** 2) / (sigma * np.sqrt(2 * np.pi))
+        out += np.exp(-0.5 * ((x - d) / sigma_value) ** 2) / (sigma_value * np.sqrt(2 * np.pi))
     out /= len(data)
     return out

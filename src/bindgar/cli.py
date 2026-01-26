@@ -12,7 +12,7 @@ class SubCommandScriptBinder:
     
     def bind(self, command_name: str, script_name: str, running_obj: Callable, help_msg: str = ""):
         if help_msg == "":
-            help_msg = f"Equals to run the script `python {script_name}`"
+            help_msg = f"Equals to run the script `python -m  bindgar.analyze.{script_name.replace('.py','')}`"
         self.binding_dict[command_name] = [script_name, running_obj, help_msg]
 
     

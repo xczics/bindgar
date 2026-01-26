@@ -106,7 +106,7 @@ def main():
         ax.plot(kde_x, kde, color=color_map[index], lw=2, label=label[index])
     if input_params["x_lim"] is not None:
         ax.set_xlim(input_params["x_lim"][0], input_params["x_lim"][1])
-    ax.set_title(f"Collision Relative Speeds for Final Mass in {m_start} ~ {m_end} M_earth")
+    ax.set_title(f"Collision Relative Speeds for Final Mass in {m_start} - {m_end} " + r"$M_{earth}$")
     ax.set_xlabel("Collision Relative Speed (km/s)")
     ax.set_ylabel("KDE")
     ax.legend()
