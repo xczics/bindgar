@@ -264,21 +264,21 @@ class Model:
             rc('text', usetex=True)  # this will not work if there in no native LaTeX installation
 
         fig1 = plt.figure(figsize=(10, 6.128 * 2))
-        ax = [0, 0, 0, 0]
-        ax[0] = fig1.add_subplot(221, adjustable='box', polar=True)
-        ax[1] = fig1.add_subplot(222, adjustable='box', polar=True)
-        ax[2] = fig1.add_subplot(223, adjustable='box', polar=True)
-        ax[3] = fig1.add_subplot(224, adjustable='box', polar=True)
+        ax = []
+        ax.append(fig1.add_subplot(221, adjustable='box', polar=True))
+        ax.append(fig1.add_subplot(222, adjustable='box', polar=True))
+        ax.append(fig1.add_subplot(223, adjustable='box', polar=True))
+        ax.append(fig1.add_subplot(224, adjustable='box', polar=True))
 
         level2 = [int(self.latent_heat * 1e-5)]  # this shows a white contour line for panel a
 
         CS = ax[0].contourf(self.theta_angle, self.rr, self.du_gain, cmap=self.vik_map, vmin=5, vmax=20,
                             levels=self.levels)
         CS2 = ax[0].contour(CS, levels=level2, colors="white", linewidths=1, vmin=5, vmax=15)
-        CS3 = ax[1].contourf(self.theta_angle, self.rr, self.du_gain_melt, vmin=0, vmax=1.0, cmap=plt.cm.inferno)
+        CS3 = ax[1].contourf(self.theta_angle, self.rr, self.du_gain_melt, vmin=0, vmax=1.0, cmap=plt.cm.inferno) #type: ignore
         CS4 = ax[2].contourf(self.theta_angle, self.rr, self.du, cmap=self.turku_map, vmin=self.vmin_value,
                              vmax=self.vmax_value, levels=self.levels)
-        CS6 = ax[3].contourf(self.theta_angle, self.rr, self.du_melt, vmin=0, vmax=1.0, cmap=plt.cm.inferno)
+        CS6 = ax[3].contourf(self.theta_angle, self.rr, self.du_melt, vmin=0, vmax=1.0, cmap=plt.cm.inferno) #type: ignore
 
         # setting for polar plots
         for i in range(0, len(ax)):
@@ -299,19 +299,19 @@ class Model:
         ax[3].text(np.pi / 2, 0.4, '$S_0=$' + str(self.entropy0) + ' J/K/kg', fontsize=15, color="black")
 
         # color bars
-        cNorm = mpl.colors.Normalize(vmin=5, vmax=20)
+        cNorm = mpl.colors.Normalize(vmin=5, vmax=20) #type: ignore
 
-        ax3 = fig1.add_axes([0.05, 0.05, 0.25, 0.015])
-        cb1 = mpl.colorbar.ColorbarBase(ax3, cmap=self.vik_map, norm=cNorm, orientation='horizontal')
+        ax3 = fig1.add_axes([0.05, 0.05, 0.25, 0.015]) #type: ignore
+        cb1 = mpl.colorbar.ColorbarBase(ax3, cmap=self.vik_map, norm=cNorm, orientation='horizontal') #type: ignore
 
-        cNorm = mpl.colors.Normalize(vmin=self.vmin_value, vmax=self.vmax_value)
-        ax4 = fig1.add_axes([0.375, 0.05, 0.25, 0.015])
-        cb2 = mpl.colorbar.ColorbarBase(ax4, cmap=self.turku_map, norm=cNorm, orientation='horizontal')
+        cNorm = mpl.colors.Normalize(vmin=self.vmin_value, vmax=self.vmax_value) #type: ignore
+        ax4 = fig1.add_axes([0.375, 0.05, 0.25, 0.015]) #type: ignore
+        cb2 = mpl.colorbar.ColorbarBase(ax4, cmap=self.turku_map, norm=cNorm, orientation='horizontal') #type: ignore
 
-        cNorm = mpl.colors.Normalize(vmin=0, vmax=1)
-        ax5 = fig1.add_axes([0.7, 0.05, 0.25, 0.015])
+        cNorm = mpl.colors.Normalize(vmin=0, vmax=1) #type: ignore
+        ax5 = fig1.add_axes([0.7, 0.05, 0.25, 0.015]) #type: ignore
 
-        cb3 = mpl.colorbar.ColorbarBase(ax5, cmap=plt.cm.inferno, norm=cNorm, orientation='horizontal')
+        cb3 = mpl.colorbar.ColorbarBase(ax5, cmap=plt.cm.inferno, norm=cNorm, orientation='horizontal') #type: ignore
 
         cb1.set_label('Internal Energy Gain ($10^5$ J/kg)')
         cb2.set_label('Total Internal Energy ($10^5$ J/kg)')
