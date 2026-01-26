@@ -9,6 +9,7 @@ setup(
         'matplotlib',
         'rebound',
         'pyyaml',
+        'scipy',
         # Add other dependencies as needed
     ],
     package_dir={'': 'src'},

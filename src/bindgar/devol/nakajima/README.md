@@ -1,6 +1,20 @@
 
 # Melt Scaling law 
 
+**NOTICE**
+
+THIS DIR IS A FORK FROM [Melt Scaling law](https://github.com/mikinakajima/MeltScalingLaw).
+I EDIT IT FOR USAGE AS A PYTHON PACKAGE. USERS SHOULD CHECK THE ORIGINAL REPO FOR MORE DETAILS ABOUT THE SCIENTIFIC BACKGROUND, AND MAKE YOUR OWN TEST BEFORE USING IT.
+
+THE ORIGINAL PART IS COPYRIGHT AS **Copyright (c) 2020 Miki Nakajima** AND UNDER MIT LICENSE. SEE THE LICENSE FILE IN THE SAME DIR.
+
+THE MODIFIED PART IS COPYRIGHT AS **Copyright (c) 2026 Zicong Xiao** AND UNDER GPLv3.0, AS A PART OF [bindgar](https://github.com/xczics/bindgar/tree/main) project. SEE THE LICENSE FILE IN THE ROOT DIR OF THE REPO.
+
+
+THE ORIGINAL README IS BELOW.
+
+__________________________________
+
 This is a scaling law described in 
 
 Nakajima, M., Golabek, G. J., Wuennemann, K., Rubie, D. C., Burger, C., Melosh, H. J., Jacobson, S. A., Manske, L., Hull, S. D. 2021. Scaling laws for the geometry of an impact-induced magma ocean. Earth and Planetary Science Letters, 568, 116983 [(link)](https://www.sciencedirect.com/science/article/pii/S0012821X21002429).

@@ -109,7 +109,21 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
                 alpha=0.3,
                 label=f"{criteria.name} - like"
             )
-    ax.scatter(a_values, y_zeros, s=np.array(m_values) ** (2/3) * size_factor, color='blue')
+    ax.scatter(a_values, y_zeros, s=np.array(m_values) ** (2/3) * size_factor, color='grey')
+    # check if any planets have their masses and a fits the analog criteria, if so, color them differently
+    if analog_criteria is not None:
+        for crit_index, criteria in enumerate(analog_criteria):
+            mask = (a_values >= criteria.a_lower) & (a_values <= criteria.a_upper) & \
+                   (m_values >= criteria.m_lower) & (m_values <= criteria.m_upper)
+            if np.any(mask):
+                ax.scatter(
+                    a_values[mask], y_zeros[mask],
+                    s=np.array(m_values[mask]) ** (2/3) * size_factor,
+                    color=analog_color[crit_index],
+                    edgecolors='black',
+                    linewidths=0.5,
+                    zorder=5,
+                )
     if not vi_x_tick_labels:    
         ax.set_xticklabels([])
     else:

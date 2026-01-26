@@ -1,3 +1,14 @@
+"""
+The COPY RIGHT
+This file and other files under the same dir is based on code from the MeltScalingLaw project (https://github.com/mikinakajima/MeltScalingLaw).
+The original code is 2020 Miki Nakajima and is licensed under the MIT License. See the Lincense file in the same dir for details.
+
+The original code has been modified. Modifications are copyright (c) 2026 Zicong Xiao.
+
+This file works as a submodule in `bindgar` project. The modification part is licensed under the GNU General Public License v3.0 (GPLv3).
+See the LICENSE file in the root dir of `bindgar` project for details.
+"""
+
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
@@ -16,6 +27,11 @@ rc('text', usetex=True)
 # TODO - error with vlarge is not quite right
 # magma ocean depth is fixed at psi = 0
 
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+def load_data_file(filename):
+    return os.path.join(current_dir, filename)
+
 class Model:
 
     def __init__(self, Mtotal=2.0, gamma=0.5, vel=2.0, entropy0=1100, impact_angle=90,
@@ -31,18 +47,7 @@ class Model:
         self.impact_angle_choices = [0.0, 30.0, 45.0, 60.0, 90.0]  # choice of impact angle
 
         self.impact_angle = float(impact_angle)  # impactor impact angle with target
-
-
-        # color maps
-        self.cm_data = np.loadtxt("vik/vik.txt")
-        self.vik_map = LinearSegmentedColormap.from_list('vik', self.cm_data)
-        self.cm_data2 = np.loadtxt("turku/turku.txt")
-        self.turku_map = LinearSegmentedColormap.from_list('turku', self.cm_data2)
-
-        # font
-        rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica']})
-        if use_tex:
-            rc('text', usetex=True)  # this will not work if there in no native LaTeX installation
+        self.use_tex = use_tex
 
         # default values
         self.Mtotal = Mtotal  # total mass
@@ -52,7 +57,7 @@ class Model:
         # default value of 1100 J/K/kg represents an adiabatic mantle with a surface temperature of 300K
         # default value of 3160 J/K/kg represents an adiabatic mantle with a surface temperature of 2000K
         self.check_model_integrity()
-        self.entropyfile = 'rho_u_S{}.dat'.format(self.entropy0)
+        self.entropyfile = load_data_file('rho_u_S{}.dat'.format(self.entropy0))
         self.outputfigurename = outputfigurename  # output figure name
 
         self.Mt = (1.0 - self.gamma) * self.Mtotal  # target mass
@@ -61,8 +66,7 @@ class Model:
 
         self.EM = 5.2e6  # specific energy needed in order for melting to occur
         self.latent_heat = 7.18e5  # latent heat
-        self.rho_P = [line.split() for line in open(
-            self.entropyfile)]  # relationship between rho-P assuming S0=3160 J/K/kg. We also assume that rho-P structure is the same at S0=1100 J/K/kg.
+        self.rho_P = [line.split() for line in open(self.entropyfile)]  # relationship between rho-P assuming S0=3160 J/K/kg. We also assume that rho-P structure is the same at S0=1100 J/K/kg.
 
         self.levels = np.arange(-2, 100, 2) 
         self.vmin_value = 5 
@@ -249,6 +253,15 @@ class Model:
         if self.theta_angle is None:
             print("Please run the model before plotting.")
             sys.exit(1)
+        # color maps
+        self.cm_data = np.loadtxt(load_data_file("vik/vik.txt"))
+        self.vik_map = LinearSegmentedColormap.from_list('vik', self.cm_data)
+        self.cm_data2 = np.loadtxt(load_data_file("turku/turku.txt"))
+        self.turku_map = LinearSegmentedColormap.from_list('turku', self.cm_data2)
+        # font
+        rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica']})
+        if self.use_tex:
+            rc('text', usetex=True)  # this will not work if there in no native LaTeX installation
 
         fig1 = plt.figure(figsize=(10, 6.128 * 2))
         ax = [0, 0, 0, 0]
@@ -352,13 +365,13 @@ class Model:
         dKE = ratio / (1 + Ri / Rt) * self.GG * Mt ** 2.0 / Rt * self.vel ** 2.0
 
         # reading parameter coefficients for melt model
-        parameter_list = [line.split() for line in open('parameter.txt')]
-        para0 = np.array(parameter_list[0][:]).astype(np.float)  # parameters for vimp=vesc cases. See Table S.5
-        para1 = np.array(parameter_list[1][:]).astype(np.float)  # parameters for vimp>1.1vesc cases. See Table S.6
+        parameter_list = [line.split() for line in open(load_data_file('parameter.txt'))]
+        para0 = np.array(parameter_list[0][:]).astype(float)  # parameters for vimp=vesc cases. See Table S.5
+        para1 = np.array(parameter_list[1][:]).astype(float)  # parameters for vimp>1.1vesc cases. See Table S.6
 
 
         # reading all the error information
-        error_read = [line.split() for line in open('Model_sigma.txt')]
+        error_read = [line.split() for line in open(load_data_file('Model_sigma.txt'))]
         sigma0 = np.zeros(shape=(3, 5))
         sigma1 = np.zeros(shape=(3, 5))
         Fsigma = np.zeros(5)
