@@ -117,8 +117,7 @@ class CollisionEvent():
     def melt_T_increase(self, 
                         C_p:float = 1200 # J/kg/K 
                         ) -> float:
-        av_du_gain = float(np.mean(self.du_gain[self.melt_label==1]))
-        delta_T = av_du_gain * 1e5 / C_p
+        delta_T = self.av_du_gain * 1e5 / C_p
         return delta_T
     
     def devoltilize(self,T_0: float=1200, **kwargs) -> tuple:
@@ -130,7 +129,9 @@ class CollisionEvent():
             kwargs["T_end"] = T_0
         result = devoltilization(T_init = T_0+delta_T, M_l_init = melt_mass, params = cooling_params, **kwargs)
         return result
-
+    @cached_property
+    def av_du_gain(self) -> float:
+        return float(np.mean(self.du_gain[self.melt_label==1]))
     @cached_property
     def cooling_params(self) -> MagmaOceanParameters:
         return self._cooling_init(**self._cooling_kwargs)
