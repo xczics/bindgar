@@ -35,7 +35,7 @@ def load_data_file(filename):
 class Model:
 
     def __init__(self, Mtotal=2.0, gamma=0.5, vel=2.0, entropy0=1100, impact_angle=90,
-                 outputfigurename="output.eps", use_tex=False):
+                 outputfigurename="output.eps", use_tex=False, silent=True):
         self.Mmar = 6.4171e23  # mass of Mars
         self.R0 = 1.5717e6  # impactor radius
         self.M0 = 6.39e22  # scaling coefficient
@@ -48,6 +48,7 @@ class Model:
 
         self.impact_angle = float(impact_angle)  # impactor impact angle with target
         self.use_tex = use_tex
+        self.silent = silent
 
         # default values
         self.Mtotal = Mtotal  # total mass
@@ -636,31 +637,32 @@ class Model:
         Pmax_conventional_model_max_sd = self.__compute_pressure(Mplanet, rmax_conventional_model_max_sd)
         Pmax_conventional_model_min_sd = self.__compute_pressure(Mplanet, rmax_conventional_model_min_sd)
 
-        print("planetary radius: " +  str(float("{0:.2f}".format(rplanet * 1e-3))) + " km")
-        print("mantle depth: " +  str(float("{0:.2f}".format(rplanet*(1.0-rcore) * 1e-3))) + " km")
-        print("mantle volume fraction: " +  str(float("{0:.2f}".format(melt_model)))
-              + ' (+' + str(float("{0:.2f}".format(melt_model_max_sd-melt_model)))
-              + ', -' + str(float("{0:.2f}".format(melt_model-melt_model_min_sd)))
-              + ')')        
-        print("magma ocean depth and pressure for a melt pool model: " + str(float("{0:.2f}".format(rplanet * 1e-3 * (1.0 - rmax_meltpool_model))))
-              + "(+" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (- rmax_meltpool_model_max_sd + rmax_meltpool_model))))
-              + ", -" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (rmax_meltpool_model_min_sd - rmax_meltpool_model)))) 
-              + ") km, "
-              +  str(float("{0:.2f}".format(Pmax_meltpool_model))) + "(+" +  str(float("{0:.2f}".format(Pmax_meltpool_model_max_sd-Pmax_meltpool_model))) +', -' +  str(float("{0:.2f}".format(Pmax_meltpool_model-Pmax_meltpool_model_min_sd))) + ") GPa")
-        
-        print("magma ocean depth and pressure for a global magma ocean model: " +  str(float("{0:.2f}".format(
-            rplanet * 1e-3 * (1.0 - rmax_global_model))))
-              + "(+" +  str(float("{0:.2f}".format(rplanet * 1e-3 *  (-rmax_global_model_max_sd + rmax_global_model))))
-              + ", -" +  str(float("{0:.2f}".format(rplanet * 1e-3 *  (rmax_global_model_min_sd - rmax_global_model))))               
-              + ") km, "
-              +  str(float("{0:.2f}".format(Pmax_global_model))) + "(+" +  str(float("{0:.2f}".format(Pmax_global_model_max_sd-Pmax_global_model))) +', -' +  str(float("{0:.2f}".format(Pmax_global_model-Pmax_global_model_min_sd))) + ") GPa")
-        
-        print("magma ocean depth and pressure for a conventional model: " +  str(float("{0:.2f}".format(
-            rplanet * 1e-3 * (1.0 - rmax_conventional_model))))
-              + "(+" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (- rmax_conventional_model_max_sd + rmax_conventional_model))))
-              + ", -" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (rmax_conventional_model_min_sd - rmax_conventional_model)))) 
-              + ") km, "
-              +  str(float("{0:.2f}".format(Pmax_conventional_model))) + "(+" +  str(float("{0:.2f}".format(Pmax_conventional_model_max_sd-Pmax_conventional_model))) +', -' +  str(float("{0:.2f}".format(Pmax_conventional_model-Pmax_conventional_model_min_sd))) + ") GPa")
+        if not self.silent:
+            print("planetary radius: " +  str(float("{0:.2f}".format(rplanet * 1e-3))) + " km")
+            print("mantle depth: " +  str(float("{0:.2f}".format(rplanet*(1.0-rcore) * 1e-3))) + " km")
+            print("mantle volume fraction: " +  str(float("{0:.2f}".format(melt_model)))
+                + ' (+' + str(float("{0:.2f}".format(melt_model_max_sd-melt_model)))
+                + ', -' + str(float("{0:.2f}".format(melt_model-melt_model_min_sd)))
+                + ')')        
+            print("magma ocean depth and pressure for a melt pool model: " + str(float("{0:.2f}".format(rplanet * 1e-3 * (1.0 - rmax_meltpool_model))))
+                + "(+" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (- rmax_meltpool_model_max_sd + rmax_meltpool_model))))
+                + ", -" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (rmax_meltpool_model_min_sd - rmax_meltpool_model)))) 
+                + ") km, "
+                +  str(float("{0:.2f}".format(Pmax_meltpool_model))) + "(+" +  str(float("{0:.2f}".format(Pmax_meltpool_model_max_sd-Pmax_meltpool_model))) +', -' +  str(float("{0:.2f}".format(Pmax_meltpool_model-Pmax_meltpool_model_min_sd))) + ") GPa")
+            
+            print("magma ocean depth and pressure for a global magma ocean model: " +  str(float("{0:.2f}".format(
+                rplanet * 1e-3 * (1.0 - rmax_global_model))))
+                + "(+" +  str(float("{0:.2f}".format(rplanet * 1e-3 *  (-rmax_global_model_max_sd + rmax_global_model))))
+                + ", -" +  str(float("{0:.2f}".format(rplanet * 1e-3 *  (rmax_global_model_min_sd - rmax_global_model))))               
+                + ") km, "
+                +  str(float("{0:.2f}".format(Pmax_global_model))) + "(+" +  str(float("{0:.2f}".format(Pmax_global_model_max_sd-Pmax_global_model))) +', -' +  str(float("{0:.2f}".format(Pmax_global_model-Pmax_global_model_min_sd))) + ") GPa")
+            
+            print("magma ocean depth and pressure for a conventional model: " +  str(float("{0:.2f}".format(
+                rplanet * 1e-3 * (1.0 - rmax_conventional_model))))
+                + "(+" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (- rmax_conventional_model_max_sd + rmax_conventional_model))))
+                + ", -" +  str(float("{0:.2f}".format(rplanet * 1e-3 * (rmax_conventional_model_min_sd - rmax_conventional_model)))) 
+                + ") km, "
+                +  str(float("{0:.2f}".format(Pmax_conventional_model))) + "(+" +  str(float("{0:.2f}".format(Pmax_conventional_model_max_sd-Pmax_conventional_model))) +', -' +  str(float("{0:.2f}".format(Pmax_conventional_model-Pmax_conventional_model_min_sd))) + ") GPa")
 
 
         self.du = du * 1e-5  # normalized by 10^5 J/kg

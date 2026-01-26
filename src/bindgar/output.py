@@ -167,6 +167,12 @@ class SimulationOutput:
             idx += 1
         return total_num 
     
+    def open_write_pip(self, file_name: str, fmt: str, **kwargs) -> SimulationOutputData:
+        file_path = path.join(self.path, file_name)
+        if "mode" not in kwargs:
+            kwargs["mode"] = "w"
+        return SimulationOutputData(file_path, format_spec=fmt, **kwargs)
+    
     @lru_cache(maxsize=2)
     def get_init_total_mass(self, skip_indexes: List[int]|None = None) -> float:
         return self._get_total_mass(self.get_init_data(), skip_indexes)

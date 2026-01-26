@@ -117,7 +117,7 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
     c_s = isothermal_sound_speed (T, parameter.M_mol)
     c_sq2 = c_s ** 2 * parameter.r
     GM = G * parameter.M_tot
-    first_part = (yita_factor*((yita / (yita - 1))-(GM / c_sq2))) ** yita_factor
+    first_part = (yita_factor*((yita / (yita - 1))-(GM / c_sq2))) ** yita_factor if (yita / (yita - 1))-(GM / c_sq2) > 0 else 0
     second_part = (GM / (4 * c_sq2)) ** (4 * yita_factor)
     third_part = (2 / yita) ** ( 2 / (yita - 1 ))
     u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
@@ -202,16 +202,16 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
     C_array = []
     if not final_only:
         T_array.append(T)
-        t_total_array.append(t_total)
-        M_loss_array.append(M_loss_total)
-        C_array.append(C)
+        t_total_array.append(float(t_total))
+        M_loss_array.append(float(M_loss_total))
+        C_array.append(float(C))
     while T > 1200:
-        cooling_rate = pTpt(T, M_l, params)
+        cooling_rate = float(pTpt(T, M_l, params))
         Dt = dT / cooling_rate
         t_total += Dt
-        M_loss_step = pMpt(T,params) * Dt
+        M_loss_step = float(pMpt(T,params) * Dt)
         M_loss_total += M_loss_step
-        C *= step_concentration (T, M_l, M_loss_step)
+        C *= float(step_concentration (T, M_l, M_loss_step))
         T -= dT
         if not final_only:
             T_array.append(T)

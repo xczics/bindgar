@@ -91,6 +91,8 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
     """
     For a given planets list, draw a horizontal diagram showing their semi-major axes, and the size of the circles representing their masses.
     """
+    a_values = np.array(a_values)
+    m_values = np.array(m_values)
     ax.set_xlim(x_lim)
     ax.set_ylim(-1, 1)
     y_zeros = np.zeros_like(a_values)
@@ -119,7 +121,7 @@ def draw_horizontal_planets_diagram(a_values: Union[List[float],np.ndarray],
                 ax.scatter(
                     a_values[mask], y_zeros[mask],
                     s=np.array(m_values[mask]) ** (2/3) * size_factor,
-                    color=analog_color[crit_index],
+                    color=analog_color[crit_index], #type: ignore
                     edgecolors='black',
                     linewidths=0.5,
                     zorder=5,
