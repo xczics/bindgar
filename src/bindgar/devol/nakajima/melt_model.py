@@ -449,7 +449,7 @@ class Model:
 
         # -- reading coefficients from coef.txt
         # Heat distribution model within mantle. See equation 13 and Table S.7
-        coef_read = [line.split() for line in open('coef.txt')]
+        coef_read = [line.split() for line in open(load_data_file('coef.txt'))]
         theta = np.zeros(shape=(len(coef_read), len(coef_read[1])))
 
         for m in range(0, len(coef_read)):

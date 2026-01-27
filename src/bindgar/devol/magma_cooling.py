@@ -14,7 +14,7 @@ class MagmaOceanParameters:
     alpha_V: float = 2e-5 # Thermal Expansivity, K-1
     g_s: Optional[float] = None # Surface Gravity, m s-2
     r: float = 1.7e6 # Planet Radius, m
-    L: float = 5e6 # Latent Heat of Fusion, J kg-1
+    L: float = 5e6 # Latent Heat of vapourization, J kg-1
     M_mol: float = 0.04 # Molar Mass of the Atmosphere, kg mol-1
     def __post_init__(self):
         if self.g_s is None:
@@ -224,30 +224,116 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
         return T_array, t_total_array, M_loss_array, C_array
 
 if __name__ == "__main__":
-    params = MagmaOceanParameters(r=1e6)
-    T = 2000
-    M_l = 0.1 * params.M_tot
-    t = 0
-    dT = 0.1
-    M_loss = 0
-    C = 1
-    while T>1200:
-        cooling_rate = pTpt(T, M_l, params)
-        Dt = dT / cooling_rate
-        t += Dt
-        M_loss_step = pMpt(T,params) * Dt
-        M_loss += M_loss_step
-        C *= step_concentration (T, M_l, M_loss_step)
-        T -= dT
-    print(t/(3600*24*365), M_loss/M_l, C, 1 - C * M_l / (0.1 * params.M_tot))
-    # test the parameter of the earth, and check the g_surf is approximately 9.8 m/s2
-    #from matplotlib import pyplot as plt
-    #import numpy as np
-    #T_array = np.linspace(500, 3000, 20)
-    #T_s_array = [T_s_from_T(T, params) for T in T_array]
-    #plt.plot(T_array,T_s_array)
-    #plt.xlabel("Average Temperature (K)")
-    #plt.ylabel("Surface Temperature (K)")
-    #plt.grid()
+    """
+    Example usage and plot the parameter test.
+    It will be a 2×2 subplot.
+    a). The cooling process with different T_init (= 1800, 2000, 3000K). x is the time, y_left is the T evolution, y_right is the C evolution.
+    b). The relationship between the T and T_s, with different parameters.
+    c). The contour plot of the C in a T_int and M_l space.
+    d). The contour plot of the C in a T_int and r space.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # a). The cooling process with different T_init (= 1800, 2000, 3000K). x is the time, y_left is the T evolution, y_right is the C evolution.
+    T_inits = [1800, 2000, 3000]
+    plt.figure(figsize=(12,10))
+    ax1 = plt.subplot(2,2,1)
+    default_params = MagmaOceanParameters()
+    M_l = default_params.M_tot * 0.7 * 0.3
+    T_arrays = []
+    t_total_arrays = []
+    M_loss_arrays = []
+    C_arrays = []
+    for T_init in T_inits:
+        T_array, t_total_array, M_loss_array, C_array = devoltilization(T_init, M_l, MagmaOceanParameters(), final_only=False)
+        T_arrays.append(T_array)
+        t_total_arrays.append(t_total_array)
+        M_loss_arrays.append(M_loss_array)
+        C_arrays.append(C_array)
+    for i, T_init in enumerate(T_inits):
+        ax1.plot(np.array(t_total_arrays[i])/365.25/24/3600, T_arrays[i], label=r'$T_{init}$='+f'{T_init}K')
+    # set x as log scale
+    ax1.set_xscale('log')
+    plt.xlabel('Time (year)')
+    plt.ylabel('Temperature (K)')
+    # 设置不要右边框线
+    ax1.spines['right'].set_visible(False)
+    ax1.tick_params(right=False)
+
+    plt.legend()
+    ax2 = ax1.twinx()
+    for i, T_init in enumerate(T_inits):
+        ax2.plot(np.array(t_total_arrays[i])/365.25/24/3600, C_arrays[i], '--', label=r'$T_{init}$='+f'{T_init}K')
+    plt.grid(color='white', linestyle='--', linewidth=0.5)
+    plt.ylabel('Concentration Ratio')
+    plt.legend()
+    # 设置右侧框线为虚线
+    # 设置右侧框线为虚线
+    ax2.spines['right'].set_visible(True)
+    ax2.spines['right'].set_linestyle('--')
+
+    # b). The relationship between the T and T_s, with different parameters.
+    plt.subplot(2,2,2)
+    T_values = np.linspace(1200, 4000, 100)
+    param_sets = {
+        "Default": MagmaOceanParameters(),
+        "Larger Radius": MagmaOceanParameters(r=2.8e6),
+        "Smaller Radius": MagmaOceanParameters(r=9e5),
+        "Smaller Viscosity": MagmaOceanParameters(v=1),
+    }
+    for label, params in param_sets.items():
+        T_s_values = [T_s_from_T(T, params) for T in T_values]
+        plt.plot(T_s_values, T_values, label=label)
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.xlabel(r'Surface Temperature $T_{surf}$ (K)')
+    plt.ylabel('Average Temperature T (K)')
+    plt.legend()
+
+    # c). The contour plot of the C in a T_int and M_l space.
+    plt.subplot(2,2,3)
+    T_init_grid = np.linspace(1500, 4000, 20)
+    M_l_factor = np.linspace(0.1, 0.9, 5)
+    T_init_mesh, M_l_factor_mesh = np.meshgrid(T_init_grid, M_l_factor)
+    C_mesh = np.zeros_like(T_init_mesh)
+    for i in range(T_init_mesh.shape[0]):
+        for j in range(T_init_mesh.shape[1]):
+            print(i,j)
+            M_l = default_params.M_tot * 0.7 * M_l_factor_mesh[i,j]
+            _, _, _, C_final = devoltilization(T_init_mesh[i,j], M_l, default_params, final_only=True)
+            C_mesh[i,j] = C_final
+    contour = plt.contourf(T_init_mesh, M_l_factor_mesh, C_mesh, levels=20, cmap='viridis')
+    plt.grid(color='white', linestyle='--', linewidth=0.5)
+    plt.colorbar(contour, label='Final Concentration in Melts')
+    plt.xlabel(r'Initial Temperature $T_{init}$ (K)')
+    plt.ylabel('Magma Ocean Mass Fraction')
+    plt.title('Final Concentration Contour')
+    # d). The contour plot of the C in a T_int and r space.
+    plt.subplot(2,2,4)
+    # let r_values in a log sapce, from 2e5 to 1e7
+    r_values = np.logspace(math.log10(2e5), math.log10(1e7), 20)
+    T_init_grid = np.linspace(1500, 4000, 20)
+    T_init_mesh, r_mesh = np.meshgrid(T_init_grid, r_values)
+    C_mesh = np.zeros_like(T_init_mesh)
+    for i in range(T_init_mesh.shape[0]):
+        for j in range(T_init_mesh.shape[1]):
+            print(i,j)
+            params = MagmaOceanParameters(r=r_mesh[i,j])
+            M_l = params.M_tot * 0.7 * 0.3
+            _, _, _, C_final = devoltilization(T_init_mesh[i,j], M_l, params, final_only=True)
+            C_mesh[i,j] = C_final
+    contour = plt.contourf(T_init_mesh, r_mesh/1e6, C_mesh, levels=20, cmap='viridis')
+    # r in log space
+    plt.yscale('log')
+    # add more ticks for y axis: Moon (1.7e6), Mars (3.4e6), Earth (6.4e6)
+    plt.yticks([0.5, 0.8, 1.0, 1.7, 3.4, 5.0, 6.4], labels=['0.5','0.8','1.0', 'Moon', 'Mars', '5.0', 'Earth'])
+    plt.grid(color='white', linestyle='--', linewidth=0.5)
+    plt.colorbar(contour, label='Final Concentration in Melts')
+    plt.xlabel(r'Initial Temperature $T_{init}$ (K)')
+    plt.ylabel(r'Planet Radius ($10^6$ m)')
+    plt.title('Final Concentration Contour')
+    plt.tight_layout()
     #plt.show()
+    plt.savefig('magma_ocean_devolatilization_parameter_study.png', dpi=600)
+    
     

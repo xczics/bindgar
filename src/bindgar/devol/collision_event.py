@@ -194,8 +194,228 @@ class CollisionEvent():
         """The escape velocity of the merged body after collision in m/s."""
         return math.sqrt( 2 * G * self.total_mass / self.radius )
 
+class CollisionResult():
+    def __init__(self, **kwargs) -> None:
+        magma_init_keys = ['impact_angle','Mtotal','gamma','vel']
+        self._magma_kwargs = {}
+        for key in magma_init_keys:
+            if key in kwargs:
+                self._magma_kwargs[key] = kwargs[key]
+        if 'Mtotal' in kwargs:
+            self.Mtotal = kwargs['Mtotal']
+        else:
+            self.Mtotal = 1.0
+    def _magma_init(self, **kwargs) -> Model:
+        if 'impact_angle' not in kwargs:
+            impact_angle = 0.0
+        else:
+            impact_angle = kwargs.pop('impact_angle')
+        if 'Mtotal' not in kwargs:
+            Mtotal = 1.0
+        else:
+            Mtotal = kwargs.pop('Mtotal')
+        if 'gamma' not in kwargs:
+            gamma = 0.5
+        else:
+            gamma = kwargs.pop('gamma')
+        if 'vel' not in kwargs:
+            vel = 2.0
+        else:
+            vel = kwargs.pop('vel')
+        # round agnle to nearest choice: 0.0, 30.0, 45.0, 60.0, 90.0
+        if impact_angle >= 60.0 and impact_angle < 75.0:
+            impact_angle = 60
+        elif impact_angle >= 75.0 and impact_angle <= 90.0:
+            impact_angle = 90
+        elif impact_angle >=0 and impact_angle < 15.0:
+            impact_angle = 0
+        elif impact_angle >=15.0 and impact_angle < 30:
+            impact_angle = 30
+        else:
+            impact_angle = round(impact_angle / 15.0) * 15
+        return Model(Mtotal=Mtotal, gamma=gamma, vel=vel, impact_angle=impact_angle, **kwargs)
+    @cached_property
+    def melt_model(self) -> Model:
+        return self._magma_init(**self._magma_kwargs)
+    @cached_property
+    def av_du_gain(self) -> float:
+        return float(np.mean(self.du_gain[self.melt_label==1]))
+    @cached_property
+    def collision_result(self) -> Dict:
+        return self.melt_model.run_model()
+    @cached_property
+    def melt_fraction(self) -> float:
+        d = self.collision_result
+        return d["melt fraction"]
+    @cached_property
+    def melt_mass(self) -> float:
+        f_mantle = 0.7
+        return f_mantle * self.melt_fraction * self.total_mass
+    @cached_property
+    def du_gain(self) -> np.ndarray:
+        d = self.collision_result
+        return d["internal energy gain"]
+    @cached_property
+    def melt_label(self) -> np.ndarray:
+        d = self.collision_result
+        return d["internal energy of the melt (considering initial temperature profile)"] 
+    @cached_property
+    def total_mass(self) -> float:
+        """The total mass of the colliding system in kg."""
+        return self.Mtotal * M_Mars
+    @cached_property
+    def peak_temperature(self) -> float:
+        C_p = 1200
+        T_0 = 1200
+        return self.av_du_gain * 1e5 / C_p + T_0
+    
+def test_magma_model() -> None:
+    """
+    Parameter test for `CollisionResult`, and plot them.
+    It will be a 3×2 subplot.
+    a). Fix M_total to 1.0, gamma to 0.5, plot Melt Fraction and peak temperature vs impact angle, for different vel (= 0.5, 1.0, 2.0, 4.0).
+    b). Fix M_total to 1.0, gamma to 0.1, plot Melt Fraction and peak temperature vs impact angle, for different vel (= 0.5, 1.0, 2.0, 4.0).
+    c). The contour plot of Melt Fraction controlled by M_total (= 0.1 ~ 10, log scale) and gamma (= 0.1 ~ 0.5), fix the impact angle to 45, and vel to 1.0.
+    d). The contour plot of peak temperature controlled by M_total and gamma, fix the impact angle to 45, and vel to 1.0. The mesh is the same as c).
+    e). The contour plot of Melt Fraction controlled by M_total (= 0.1 ~ 10, log scale) and vrel (= 0.5 ~ 4.0), fix the impact angle to 45, and gamma to 0.1.
+    f). The contour plot of peak temperature controlled by M_total and vrel, fix the impact angle to 45, and gamma to 0.5. The mesh is the same as e).
+    """
+    import matplotlib.pyplot as plt
+    impact_angles = np.array([0.0, 30.0, 45.0, 60.0, 90.0])
+    vels = [0.5, 1.0, 2.0, 4.0]
+    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+    # a)
+    # left y-axis is melt fraction, right y-axis is peak temperature
+    ax_left = axs[0, 0]
+    ax_right = ax_left.twinx()
+    # left y-spines and ticks are red and solid, right y-spines and ticks are blue and dashed
+    # use four red-like colors for 4 different vel to show the melt fraction
+    left_colors = ["red", "orange", "brown", "magenta"]
+    right_colors = ["blue", "cyan", "green", "purple"]
+    for vindex, vel in enumerate(vels):
+        melt_fractions = []
+        peak_temperatures = []
+        for angle in impact_angles:
+            collision = CollisionResult(Mtotal=1.0, gamma=0.5, vel=vel, impact_angle=angle)
+            melt_fractions.append(collision.melt_fraction)
+            peak_temperatures.append(collision.peak_temperature)
+        ax_left.plot(impact_angles, melt_fractions, color=left_colors[vindex], marker='o', label=f'Vel={vel}xVesc')
+        ax_right.plot(impact_angles, peak_temperatures, color=right_colors[vindex], marker='x', linestyle='--', label=f'Vel={vel}xVesc')
+    ax_right.set_yscale('log')
+    ax_right.set_ylim(1000, 50000)
+    ax_left.set_xlabel('Impact Angle (degree)')
+    ax_left.set_ylabel('Melt Fraction', color='red')
+    ax_right.set_ylabel('Peak Temperature (K)', color='blue')
+    ax_left.set_title('Melt Fraction and Peak Temperature vs Impact Angle\n(Mtotal=1.0 Mars mass, gamma=0.5)')
+    ax_left.legend(loc='upper left')
+    ax_right.legend(loc='upper right')
+    # set spines and ticks
+    ax_left.spines['left'].set_color('red')
+    ax_left.tick_params(axis='y', colors='red')
+    ax_left.spines['right'].set_visible(False)
+    ax_right.spines['right'].set_color('blue')
+    ax_right.tick_params(axis='y', colors='blue')
+    ax_right.spines['right'].set_linestyle('--')
+    ax_right.spines['left'].set_visible(False)
+
+    # b)
+    ax_left = axs[0, 1]
+    ax_right = ax_left.twinx()
+    for vindex, vel in enumerate(vels):
+        melt_fractions = []
+        peak_temperatures = []
+        for angle in impact_angles:
+            collision = CollisionResult(Mtotal=1.0, gamma=0.1, vel=vel, impact_angle=angle)
+            melt_fractions.append(collision.melt_fraction)
+            peak_temperatures.append(collision.peak_temperature)
+        ax_left.plot(impact_angles, melt_fractions, color=left_colors[vindex], marker='o', label=f'Vel={vel}xVesc')
+        ax_right.plot(impact_angles, peak_temperatures, color=right_colors[vindex], marker='x', linestyle='--', label=f'Vel={vel}xVesc')
+    ax_right.set_yscale('log')
+    ax_right.set_ylim(1000, 50000)
+    ax_left.set_xlabel('Impact Angle (degree)')
+    ax_left.set_ylabel('Melt Fraction', color='red')
+    ax_right.set_ylabel('Peak Temperature (K)', color='blue')
+    ax_left.set_title('Melt Fraction and Peak Temperature vs Impact Angle\n(Mtotal=1.0 Mars mass, gamma=0.1)')
+    ax_left.legend(loc='upper left')
+    ax_right.legend(loc='upper right')
+    # set spines and ticks
+    ax_left.spines['left'].set_color('red')
+    ax_left.tick_params(axis='y', colors='red')
+    ax_left.spines['right'].set_visible(False)
+    ax_right.spines['right'].set_color('blue')
+    ax_right.tick_params(axis='y', colors='blue')
+    ax_right.spines['right'].set_linestyle('--')
+    ax_right.spines['left'].set_visible(False)
+
+    # c) and d)
+    Mtotals = np.logspace(-1, 1, 15)  # 0.1 to 10 Mars mass
+    gammas = np.linspace(0.1, 0.5, 15)
+    Melt_Fraction_mesh = np.zeros((len(Mtotals), len(gammas)))
+    Peak_Temperature_mesh = np.zeros((len(Mtotals), len(gammas)))
+    for i, Mtotal in enumerate(Mtotals):
+        for j, gamma in enumerate(gammas):
+            print(i,j)
+            collision = CollisionResult(Mtotal=Mtotal, gamma=gamma, vel=1.0, impact_angle=45.0)
+            Melt_Fraction_mesh[i, j] = collision.melt_fraction
+            Peak_Temperature_mesh[i, j] = collision.peak_temperature
+    ax = axs[1, 0]
+    c1 = ax.contourf(gammas, Mtotals, Melt_Fraction_mesh, levels=10, cmap='viridis')
+    fig.colorbar(c1, ax=ax, label='Melt Fraction')
+    ax.set_xscale('linear')
+    ax.set_yscale('log')
+    ax.set_xlabel('Gamma (Impactor Mass / Total Mass)')
+    ax.set_ylabel('Total Mass (Mars mass)')
+    ax.set_title('Melt Fraction Contour\n(Impact Angle=45°, Vel=1.0xVesc)')
+    ax = axs[1, 1]
+    # set max temperature to 10000 K for better colorbar. and set the lower bound of color bar to 1200 K
+    Peak_Temperature_mesh = np.clip(Peak_Temperature_mesh, None, 10000)
+    c2 = ax.contourf(gammas, Mtotals, Peak_Temperature_mesh, levels=10, cmap='coolwarm')
+    fig.colorbar(c2, ax=ax, label='Peak Temperature (K)')
+    c2.set_clim(1200, 10000)
+    ax.set_xscale('linear')
+    ax.set_yscale('log')
+    ax.set_xlabel('Gamma (Impactor Mass / Total Mass)')
+    ax.set_ylabel('Total Mass (Mars mass)')
+    ax.set_title('Peak Temperature Contour\n(Impact Angle=45°, Vel=1.0xVesc)')
+    # e) and f)
+    Mtotals = np.logspace(-1, 1, 15)  # 0.1 to 10 Mars mass
+    vels = np.linspace(0.5, 4.0, 15)
+    Melt_Fraction_mesh = np.zeros((len(Mtotals), len(vels)))
+    Peak_Temperature_mesh = np.zeros((len(Mtotals), len(vels)))
+    for i, Mtotal in enumerate(Mtotals):
+        for j, vel in enumerate(vels):
+            print(i,j)
+            collision = CollisionResult(Mtotal=Mtotal, gamma=0.1, vel=vel, impact_angle=45.0)
+            Melt_Fraction_mesh[i, j] = collision.melt_fraction
+            Peak_Temperature_mesh[i, j] = collision.peak_temperature
+    ax = axs[2, 0]
+    c3 = ax.contourf(vels, Mtotals, Melt_Fraction_mesh, levels=10, cmap='viridis')
+    fig.colorbar(c3, ax=ax, label='Melt Fraction')
+    ax.set_xscale('linear')
+    ax.set_yscale('log')
+    ax.set_xlabel('Velocity (x Vesc)')
+    ax.set_ylabel('Total Mass (Mars mass)')
+    ax.set_title('Melt Fraction Contour\n(Impact Angle=45°, Gamma=0.1)')
+    ax = axs[2, 1]
+    # set max temperature to 10000 K for better colorbar. 
+    Peak_Temperature_mesh = np.clip(Peak_Temperature_mesh, None, 10000)
+    c4 = ax.contourf(vels, Mtotals, Peak_Temperature_mesh, levels=10, cmap='coolwarm')
+    c4.set_clim(1200, 10000)
+    fig.colorbar(c4, ax=ax, label='Peak Temperature (K)')
+    ax.set_xscale('linear')
+    ax.set_yscale('log')
+    ax.set_xlabel('Velocity (x Vesc)')
+    ax.set_ylabel('Total Mass (Mars mass)')
+    ax.set_title('Peak Temperature Contour\n(Impact Angle=45°, Gamma=0.1)')
+
+    # plot and save figure to 'collision_result_test.png'
+    plt.tight_layout()
+    plt.savefig('collision_result_test.png', dpi=600)
 
 if __name__ == "__main__":
+    # main()
+    test_magma_model()
+def main() -> None:
     example_data = {
         "time":29457364.762859217823,
         "indexi":56,
