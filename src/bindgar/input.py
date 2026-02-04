@@ -67,6 +67,14 @@ class InputLoader:
         config = self._load_yaml_config(config_path)
         return self._parse_args_and_merge(config)
     
+    def load_yaml(self, config_path: Optional[str] = None) -> Dict[str, Any]:
+        """仅从YAML加载配置,不解析命令行参数, 并替换默认值"""
+        if config_path is None:
+            config_path = self._parse_config_path()
+        self._add_link_parameters()
+        self._flatten_param_defs()
+        return self._load_yaml_config(config_path)
+    
     def generate_default_dict(self) -> Dict[str, Any] :
         # 生成默认配置字典
         default_config = {}

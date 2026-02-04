@@ -187,10 +187,8 @@ def OutPutSim(sim: rebound.Simulation, output_file: str, format_str: str) -> Non
                     data_dict[name] = getattr(p, name)
             outdata.write_data(data_dict)
 
-@register_command("setup-generate",help_msg="Generate initial conditions.")
-def main():
-    from .input import InputLoader,InputAcceptable
-    DEFAULT_PARAMS: InputAcceptable= {
+from .input import InputLoader,InputAcceptable
+SETUP_PARAMETERS: InputAcceptable= {
     "N_emb": {
         "default": 10,
         "help": "Number of embryos in the simulation",
@@ -319,15 +317,15 @@ def main():
         "help": "Factor to convert eccentricity to inclination if inc_type is 'e_factor'",
         "type": float,
     },
-    }
-    me = M_EARTH / M_SUN
-    input_param = InputLoader(DEFAULT_PARAMS).load()
+}
+
+def handle_default_setups(input_param: Dict[str, Any]) -> tuple:
     N_emb = input_param["N_emb"]
     N_pl = input_param["N_pl"]
     Mtot_emb = input_param["Mtot_emb"] if input_param["Mtot_emb"] is not None else input_param["Mtot_disk"] / 2.0
     Mtot_pl = input_param["Mtot_pl"] if input_param["Mtot_pl"] is not None else input_param["Mtot_disk"] / 2.0
-    m_emb = input_param["m_emb"] if input_param["m_emb"] is not None else Mtot_emb * me / float(N_emb)
-    m_pl = input_param["m_pl"] if input_param["m_pl"] is not None else Mtot_pl * me / float(N_pl)
+    m_emb = input_param["m_emb"] if input_param["m_emb"] is not None else Mtot_emb *  (M_EARTH / M_SUN) / float(N_emb)
+    m_pl = input_param["m_pl"] if input_param["m_pl"] is not None else Mtot_pl *  (M_EARTH / M_SUN) / float(N_pl)
     r_emb = input_param["r_emb"]
     r_pl = input_param["r_pl"]
     if r_emb is None or r_pl is None:
@@ -336,6 +334,12 @@ def main():
             r_emb = k * (m_emb)**(1./3.)
         if r_pl is None:
             r_pl = k * (m_pl)**(1./3.)
+    return N_emb, N_pl, m_emb, m_pl, r_emb, r_pl
+
+@register_command("setup-generate",help_msg="Generate initial conditions.")
+def main():
+    input_param = InputLoader(SETUP_PARAMETERS).load()
+    N_emb, N_pl, m_emb, m_pl, r_emb, r_pl = handle_default_setups(input_param)
     sim = rebound.Simulation()
     np.random.seed(input_param["random_seed"])
     add_star(sim)
