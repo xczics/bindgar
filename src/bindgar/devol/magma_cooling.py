@@ -334,6 +334,6 @@ if __name__ == "__main__":
     plt.title('Final Concentration Contour')
     plt.tight_layout()
     #plt.show()
-    plt.savefig('magma_ocean_devolatilization_parameter_study.png', dpi=600)
+    plt.savefig('magma_ocean_devolatilization_parameter_study.pdf')
     
     

@@ -406,7 +406,7 @@ def test_magma_model() -> None:
 
     # plot and save figure to 'collision_result_test.png'
     plt.tight_layout()
-    plt.savefig('collision_result_test.png', dpi=600)
+    plt.savefig('collision_result_test.pdf')
 
 if __name__ == "__main__":
     # main()
