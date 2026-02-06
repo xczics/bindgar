@@ -1,8 +1,15 @@
 from typing import List, Tuple, Optional
 from matplotlib.axes import Axes
+import matplotlib.pyplot as plt
 import numpy as np  # type: ignore
 from numpy import ndarray
 from .physics import M_SUN, M_EARTH
+from .input import InputLoader, InputAcceptable
+from .cli import register_command, _dynamic_import_analyze_modules
+import sys
+
+subplot_drawers = {}
+subplot_inputers = {}
 
 def scatter_positions(ax: Axes, xym_arrays: ndarray, **kwargs) -> None:
     """Scatter plot of x-y positions sizes by mass.
@@ -97,3 +104,98 @@ def scatter_am(ax: Axes,
     ax.set_ylim(min(m_array)*0.85, min(max_mas, max(m_array)*1.1))
     ax.set_yscale('log')
 
+@register_command("multi-draw", help_msg="Run several sub-commands, and output a combined figure.")
+def draw_multi_plots():
+    """
+    An user-friendly command to draw multiple subplots.
+    """
+    DEFAULT_PARAMS: InputAcceptable = {
+        "figure_file" : {
+            "default": "multi_collision_relative_speeds.png",
+            "help": "output figure file name",
+            "short": "o",
+            "type": str,
+        },
+        "n_cols": {
+            "default": 1,
+            "help": "number of columns in the figure",
+            "type": int,
+        },
+        "n_rows": {
+            "default": 0,
+            "help": "number of rows in the figure",
+            "type": int,
+        },
+        "sub_params" : {
+            "default": None,
+            "help": "list of yaml files for each subplot. Each yaml file should be a valid input for draw-collision-speeds command.",
+            "type": list,
+            "short": "i",
+        },
+        "sub_commands" :{
+            "default": None,
+            "help": "list of commands for each subplot. Supported sub commands are " + ",".join(subplot_drawers.keys()),
+            "type": list,
+            "short": "t",
+        }
+    }
+    input_params = InputLoader(DEFAULT_PARAMS).load()
+    #subparam_loader = InputLoader(COLLISION_DRAWER_PARAMS)
+    figure_file = input_params["figure_file"]
+    sub_params_files = input_params["sub_params"]
+    sub_commands = input_params["sub_commands"]
+    # 断言sub_params_files和sub_commands的长度相同
+    assert len(sub_params_files) == len(sub_commands), "The length of sub_params_files and sub_commands should be the same."
+    n_subplots = len(sub_params_files)
+    if input_params["n_rows"] > 0:
+        n_rows = input_params["n_rows"]
+        n_cols = (n_subplots + n_rows - 1) // n_rows
+    elif input_params["n_cols"] > 0:
+        n_cols = input_params["n_cols"]
+        n_rows = (n_subplots + n_cols - 1) // n_cols
+    else:
+        n_cols = 1
+        n_rows = n_subplots
+    plt.figure(figsize=(8*n_cols,4*n_rows))
+    index_chapter = 'a'
+    # iter over subplots. each subplot has a sub_params_files and a sub_commd.
+    for i, (sub_param_file, sub_command) in enumerate(zip(sub_params_files, sub_commands)):
+        loader = InputLoader(subplot_inputers[sub_command])
+        sub_params = loader.load_yaml(sub_param_file)
+        ax = plt.subplot(n_rows, n_cols, i+1)
+        factory = subplot_drawers[sub_command]
+        factory(ax, sub_params)
+        ax.text(0.02, 0.95, f"{index_chapter})", transform=ax.transAxes, fontsize=16, verticalalignment='top')
+        index_chapter = chr(ord(index_chapter) + 1)
+    plt.tight_layout()
+    plt.savefig(figure_file)
+
+
+def register_subplot_drawer(name: str, params: InputAcceptable):
+    """
+    an wrapper function to register subplot drawing functions. 
+    the wrapper should take 2 parameters: one is the name of subplot, another is an InputAcceptable dict.
+    the function should also take 2 parameters: one is the Axes to draw on, another is the input parameters loaded from the InputAcceptable dict.
+    In the meanwhile, the wrapper function will export a function to global namespace of this module, which can be called directly with the Axes and the input parameters as kwargs. The name of the exported function will be "call_" + the original function name.
+     """
+    def decorator(func):
+        def wrapper(ax: Axes, input_params: dict):
+            func(ax, input_params)
+        def export_function(ax: Axes, **kwargs):
+            loader = InputLoader(params)
+            input_params = loader.load_by_kwargs(kwargs)
+            func(ax, input_params)
+        subplot_drawers[name] = wrapper
+        subplot_inputers[name] = params
+        # 将函数导出到当前模块的全局命名空间
+        module = sys.modules[__name__]
+        export_function.__name__ = f"call_{name.replace('-', '_')}"
+        export_function.__module__ = __name__
+        export_function.__doc__ = InputLoader(params).document()
+        
+        # 将函数设置为模块属性
+        setattr(module, f"call_{name.replace('-', '_')}", export_function)
+        return wrapper
+    return decorator
+
+_dynamic_import_analyze_modules()

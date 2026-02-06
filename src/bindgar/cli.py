@@ -143,6 +143,7 @@ def main():
     # dynamically import them to ensure registration, not manually import
     _dynamic_import_analyze_modules()
     from . import setupgener
+    from . import vi
     command_name = registry.check_or_help()
     registry.run(command_name)
 

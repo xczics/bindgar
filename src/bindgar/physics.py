@@ -83,3 +83,18 @@ def stastic_kde(data: np.ndarray,
         out += np.exp(-0.5 * ((x - d) / sigma_value) ** 2) / (sigma_value * np.sqrt(2 * np.pi))
     out /= len(data)
     return out
+
+def impact_angle_radians(delx: np.ndarray, delv: np.ndarray) ->float:
+    """
+    Calculate the impact angle in radians from the relative position and velocity vectors.
+    The 0 is a head-on collision and 90 is the most oblique impact.
+    """
+    delx_norm = np.linalg.norm(delx)
+    delv_norm = np.linalg.norm(delv)
+    if delx_norm == 0 or delv_norm == 0:
+        return 0.0
+    cos_theta = np.dot(delx, delv) / (delx_norm * delv_norm)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)  # Ensure the value is within valid range for acos
+    theta = np.abs(acos(cos_theta))
+    return theta
+    

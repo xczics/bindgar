@@ -4,7 +4,7 @@ In this module, we will handle the devoltilization during a single collision eve
 
 from typing import Dict, Optional
 import numpy as np
-from ..physics import convert_factor_from_auptu_to_kmps, AU2M, M_EARTH, M_SUN, G, M_Mars
+from ..physics import convert_factor_from_auptu_to_kmps, AU2M, M_EARTH, M_SUN, G, M_Mars, impact_angle_radians
 import math
 from functools import cached_property
 from .nakajima.melt_model import Model
@@ -168,11 +168,7 @@ class CollisionEvent():
     @cached_property
     def impact_angle_radian(self) -> float:
         """The impact angle in radian."""
-        del_v_norm = self.delv / np.linalg.norm(self.delv)
-        del_x_norm = self.delx / np.linalg.norm(self.delx)
-        cos_angle = np.clip( np.dot( del_v_norm, del_x_norm ), -1.0, 1.0)
-        angle = np.arccos( np.abs(cos_angle) )
-        return angle
+        return impact_angle_radians(self.delx, self.delv)
     @cached_property
     def impact_angle(self) -> float:
         """The impact angle in degree."""

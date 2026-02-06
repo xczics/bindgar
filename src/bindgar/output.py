@@ -173,18 +173,41 @@ class SimulationOutput:
             kwargs["mode"] = "w"
         return SimulationOutputData(file_path, format_spec=fmt, **kwargs)
     
+    def set_gass_giant_indexes(self, indexes: List[int]) -> None:
+        self.gass_giant_indexes = indexes
+    
     @lru_cache(maxsize=2)
-    def get_init_total_mass(self, skip_indexes: List[int]|None = None) -> float:
-        return self._get_total_mass(self.get_init_data(), skip_indexes)
+    def get_init_total_mass(self, skip_gass_gaint: bool = False) -> float:
+        if not skip_gass_gaint:
+            return self._get_total_mass(self.get_init_data())
+        elif hasattr(self, "gass_giant_indexes"):
+            return self._get_total_mass(self.get_init_data(), self.gass_giant_indexes)
+        else:
+            raise ValueError("Gas giant indexes not set. Please call set_gass_giant_indexes() first.")
     @lru_cache(maxsize=2)
-    def get_final_total_mass(self, skip_indexes: List[int]|None = None) -> float:
-        return self._get_total_mass(self.load_last_output(), skip_indexes)
+    def get_final_total_mass(self, skip_gass_gaint: bool = False) -> float:
+        if not skip_gass_gaint:
+            return self._get_total_mass(self.load_last_output())
+        elif hasattr(self, "gass_giant_indexes"):
+            return self._get_total_mass(self.load_last_output(), self.gass_giant_indexes)
+        else:
+            raise ValueError("Gas giant indexes not set. Please call set_gass_giant_indexes() first.")
     @lru_cache(maxsize=2)
-    def get_init_num_particles(self, skip_indexes: List[int]|None = None) -> int:
-        return self._get_num_particles(self.get_init_data(),skip_indexes)
+    def get_init_num_particles(self, skip_gass_gaint: bool = False) -> int:
+        if not skip_gass_gaint:
+            return self._get_num_particles(self.get_init_data())
+        elif hasattr(self, "gass_giant_indexes"):
+            return self._get_num_particles(self.get_init_data(), self.gass_giant_indexes)
+        else:
+            raise ValueError("Gas giant indexes not set. Please call set_gass_giant_indexes() first.")
     @lru_cache(maxsize=2)
-    def get_final_num_particles(self, skip_indexes: List[int]|None = None) -> int:
-        return self._get_num_particles(self.load_last_output(),skip_indexes)
+    def get_final_num_particles(self, skip_gass_gaint: bool = False) -> int:
+        if not skip_gass_gaint:
+            return self._get_num_particles(self.load_last_output())
+        elif hasattr(self, "gass_giant_indexes"):
+            return self._get_num_particles(self.load_last_output(), self.gass_giant_indexes)
+        else:
+            raise ValueError("Gas giant indexes not set. Please call set_gass_giant_indexes() first.")
 
     def magic_color(self, properties: List|None = None, value_range: List|None = None) -> str:
         """

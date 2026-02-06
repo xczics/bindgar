@@ -75,6 +75,17 @@ class InputLoader:
         self._flatten_param_defs()
         return self._load_yaml_config(config_path)
     
+    def load_by_kwargs(self, kwargs) -> Dict[str, Any]:
+        """从给定的kwargs加载配置, 不解析命令行参数, 并替换默认值"""
+        self._add_link_parameters()
+        self._flatten_param_defs()
+        config = {
+            name: defs["default"] if not isinstance(defs, InputLoader) else defs.generate_default_dict()
+            for name, defs in self.param_defs.items()
+        }
+        deep_update(config, kwargs)
+        return self._update_link_parameters(config)
+
     def generate_default_dict(self) -> Dict[str, Any] :
         # 生成默认配置字典
         default_config = {}
