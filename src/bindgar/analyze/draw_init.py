@@ -33,15 +33,7 @@ def distribution_line(a_range: Tuple[float, float],
         x = np.linspace(0, 1, 100)
         min_a = a_range[0]
         max_a = a_range[1]
-        if a_factor > 0:
-            raise ValueError("Powerlaw factor must be negative.")
-        if a_factor == -2.0:
-            y =  min_a * (max_a / min_a) ** x
-        else:
-            power = a_factor + 2.0
-            #value = ((max_v**power - min_v**power) * a + min_v**power) ** (1.0 / power)s
-            y = ((max_a**power - min_a**power) * x + min_a**power) ** (1.0 / power)
-        x = x * (a_range[1] - a_range[0]) + a_range[0]
+        y = (x * (max_a**(a_factor + 1) - min_a**(a_factor + 1)) + min_a**(a_factor + 1)) ** (1 / (a_factor + 1))
         text = r"$\Sigma \propto r^{" + f"{a_factor}" + r"}$"
     elif a_type == "gaussian":
         sigma = 0.5 * (a_range[1] - a_range[0])
