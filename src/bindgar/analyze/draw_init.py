@@ -31,9 +31,12 @@ def distribution_line(a_range: Tuple[float, float],
         text = "Uniform ({a_range[0]:.2f} - {a_range[1]:.2f} au)"
     elif a_type == "powerlaw":
         x = np.linspace(0, 1, 100)
-        min_a = a_range[0]
-        max_a = a_range[1]
-        y = (x * (max_a**(a_factor + 1) - min_a**(a_factor + 1)) + min_a**(a_factor + 1)) ** (1 / (a_factor + 1))
+        x = a_range[0] + x * (a_range[1] - a_range[0])
+        y = x ** ( a_factor + 1.0 )
+        if a_factor != -2.0:
+            y = y * ( a_factor + 2.0 ) / ( a_range[1] ** ( a_factor + 2.0 ) - a_range[0] ** ( a_factor + 2.0 ) )
+        else:
+            y = y / np.log(a_range[1] / a_range[0])
         text = r"$\Sigma \propto r^{" + f"{a_factor}" + r"}$"
     elif a_type == "gaussian":
         sigma = 0.5 * (a_range[1] - a_range[0])
@@ -54,7 +57,7 @@ def distribution_sketch(
                         a_type_em: Literal["uniform", "powerlaw", "gaussian"] = "uniform",
                         a_factor_pl: float = -1.5,
                         a_factor_em: float = -1.5,
-                        pl_em_ratio: float = 10.0,
+                        pl_em_ratio: float = 9.0,
                         scale_figure: bool = True,):
     """
     Draw a sketch of the distribution of the semi-major axis of planetesimals and embryos. 
