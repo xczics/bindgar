@@ -45,22 +45,45 @@ def draw_analogs(simulations_lists: List[str], color_map: List[str]|CyclicList,
                   a_end: float, m_start: float, m_end: float, color_analogs: List[str],
                   figure_file: str = "analogs_plot.png",
                   auto_color: bool = False,
-                  color_params: List[List]|None = None):
+                  color_params: List[List]|None = None,
+                  group_mode: bool = False,
+                  labels: List[str]|None = None,):
     plt.figure(figsize=(10, 8))
     ax = plt.gca()
-    for sim_index, simulation in enumerate(simulations_lists):
-        SimOutObj = SimulationOutput(simulation)
-        if auto_color:
-            if color_params is None:
-                color = SimOutObj.magic_color()
+    if not group_mode:
+        group_list = [[sim] for sim in simulations_lists]
+    else:
+        group_list = simulations_lists
+    for group_index, sim_list in enumerate(group_list):
+        a_values = np.array([])
+        m_values = np.array([])
+        color = None
+        label = None
+        for sim_index, simulation in enumerate(sim_list):
+            SimOutObj = SimulationOutput(simulation)
+            final_particles = get_final_particles(SimOutObj)
+            if sim_index == 0:
+                if auto_color:
+                    if color_params is None:
+                        color = SimOutObj.magic_color()
+                    else:
+                        color = SimOutObj.magic_color(properties=color_params[group_index])
+                else:
+                    color = color_map[group_index]
+                if labels is not None:
+                    label = labels[group_index] if group_index < len(labels) else None
+                else:
+                    label = None
+                if label is None:
+                    label = SimOutObj.get_input_params("Output name")
+                a_values, _, _, m_values = partical_orbital_array(final_particles)
             else:
-                color = SimOutObj.magic_color(properties=color_params[sim_index])
-        else:
-            color = color_map[sim_index]
-        final_particles = get_final_particles(SimOutObj)
-        a_values, _, _, m_values = partical_orbital_array(final_particles)
-        ax.scatter(a_values, m_values, color=color, label=SimOutObj.get_input_params("Output name"), alpha=0.6, s=20)
-    # draw range of planet-like analogs
+                a_values_append, _, _, m_values_append = partical_orbital_array(final_particles)
+                a_values = np.concatenate((a_values, a_values_append))
+                m_values = np.concatenate((m_values, m_values_append))
+            if sim_index == len(sim_list) - 1:
+                ax.scatter(a_values, m_values, color=color, label=label, alpha=0.8, s=20)
+        # draw range of planet-like analogs
     for crit_index, criteria in enumerate(planet_like_critical):
         ax.fill_betweenx(
             [criteria.m_lower, criteria.m_upper],
@@ -72,7 +95,7 @@ def draw_analogs(simulations_lists: List[str], color_map: List[str]|CyclicList,
     ax.set_xlim(a_start, a_end)
     ax.set_ylim(m_start, m_end)
     ax.set_xlabel("Semi-major axis (a.u.)")
-    ax.set_ylabel("Mass (M_earth)")
+    ax.set_ylabel(r"Mass ($M_{earth}$)")
     ax.set_title("Final Particles and Planet-like Analogs")
     ax.legend()
     # automatically adjust layout
@@ -471,6 +494,11 @@ def main():
             "help": "color for analog regions",
             "type": list,
         },
+        "group_mode" : {
+            "default": False,
+            "help": "whether to group by simulation groups",
+            "type": bool,
+        },
         "figure_file" : {
             "default": "analogs_plot.png",
             "help": "output figure file name",
@@ -487,9 +515,15 @@ def main():
             "help": "auto set the colors by the simulation set, you can specify the properties for color mapping. It should be the same size as simulations_lists",
             "type": List,
         },
+        "label" : {
+            "default": None,
+            "help": "label for the plot, if group_mode is True, it will label the group, else it will label each simulation.",
+            "type": list,
+        },
     }
     input_params = InputLoader(DEFAULT_PARAMS).load()
     simulations_lists = input_params["simulations_lists"]
+    group_mode = input_params["group_mode"]
     if simulations_lists is None or len(simulations_lists) == 0:
         raise ValueError("simulations_lists is required and cannot be empty.") 
     color_map = CyclicList(input_params["color_map"]) if input_params["color_map"] is not None else default_colors
@@ -506,7 +540,9 @@ def main():
     color_analogs = input_params["color_analogs"]
     draw_analogs(simulations_lists, color_map, planet_like_critical,
      a_start, a_end, m_start, m_end, color_analogs,
-    input_params["figure_file"],input_params["auto_color"], input_params["color_params"])
+    input_params["figure_file"],input_params["auto_color"],
+    input_params["color_params"],group_mode=group_mode,
+    labels=input_params["label"])
 
 @register_command("final-planets",help_msg="draw final terrestrial planets.")
 def final_planets():
