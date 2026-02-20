@@ -2,13 +2,15 @@
 In this module, we will handle the devoltilization during a single collision event.
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional,List, Tuple, Self, Set
 import numpy as np
 from ..physics import convert_factor_from_auptu_to_kmps, AU2M, M_EARTH, M_SUN, G, M_Mars, impact_angle_radians
 import math
-from functools import cached_property
+from functools import cached_property, lru_cache
 from .nakajima.melt_model import Model
 from .magma_cooling import MagmaOceanParameters,devoltilization
+from ..output import SimulationOutput
+from ..common import statstic_time
 
 class CollisionEvent():
     """
@@ -61,12 +63,14 @@ class CollisionEvent():
         cooling_keys = ["rho_B","rho_M","kapa","v" ,"k","C_p","alpha_V","g_s","r","L","M_mol"]
         self._cooling_kwargs = {key: kwargs[key] for key in cooling_keys if key in kwargs}
 
+    @statstic_time
     def _handle_collision_data(self,collision: Dict,
                              rho_B: Optional[float] = None) -> None:
         if collision["mi"] >= collision["mj"]:
             target_key, impactor_key = "i", "j"
         else:
             target_key, impactor_key = "j", "i"
+        self.time = collision["time"]
         target_index = collision[f"index{target_key}"]
         impactor_index = collision[f"index{impactor_key}"]
         target_x = np.array([collision[f"x{target_key}"], collision[f"y{target_key}"], collision[f"z{target_key}"]])
@@ -90,6 +94,7 @@ class CollisionEvent():
             volume = (4/3) * np.pi * (target_radius * AU2M)**3
             self.rho_B = target_mass * M_SUN / volume
 
+    @statstic_time
     def _magma_init(self, **kwargs) -> Model:
         Mtotal = self.total_mass / M_Mars  # in Mars mass
         gamma = self.gamma
@@ -142,6 +147,7 @@ class CollisionEvent():
     def collision_result(self) -> Dict:
         return self.melt_model.run_model()
     @cached_property
+    @statstic_time
     def melt_fraction(self) -> float:
         d = self.collision_result
         return d["melt fraction"]
@@ -190,6 +196,187 @@ class CollisionEvent():
         """The escape velocity of the merged body after collision in m/s."""
         return math.sqrt( 2 * G * self.total_mass / self.radius )
 
+class SimulationMeltsEvolution():
+    def __init__(self, simulation: SimulationOutput, **kwargs) -> None:
+        self._event_args = kwargs
+        self.simulation = simulation
+        self.simulation.built_history()
+        self._melt_fractions_event = None
+        self._collision_events : List[CollisionEvent|None] = [None] * len(self.simulation.collisions)
+        self._melt_evolution_particles = {}
+        self._collision_index2particle_evolution_index : List[Tuple[int|None,int|None]] = [(None,None)] * len(self.simulation.collisions)
+        self._current_point = 0
+    @cached_property
+    def final_particles(self) -> List[int]:
+        return self.simulation.survivals()
+    @cached_property
+    def final_particles_set(self) -> Set[int]:
+        return self.simulation._survivals
+    @property
+    def final_particles_without_gass_giants(self) -> List[int]:
+        return self.simulation.survivals_without_gas_giants
+    @property
+    def final_particles_without_gass_giants_set(self) -> Set[int]:
+        return self.simulation.survivals_without_gas_giants_sets
+    @property
+    def target(self) -> int:
+        current_event = self.melt_events(self._current_point)
+        return current_event.target
+    @property
+    def impactor(self) -> int:
+        current_event = self.melt_events(self._current_point)
+        return current_event.impactor
+    @property
+    def time(self) -> float:
+        current_event = self.melt_events(self._current_point)
+        return current_event.time
+    @property
+    def new_melt_frac(self) -> float:
+        current_event = self.melt_events(self._current_point)
+        return current_event.melt_fraction
+    @property
+    def accumulated_melt_frac(self) -> float:
+        index_particle, evolution_index = self._collision_index2particle_evolution_index[self._current_point]
+        if index_particle is not None and evolution_index is not None:
+            return self.get_particle_melt_evolution(index_particle)[evolution_index,0]
+        else:
+            return 0.0
+    @property
+    def is_beginning(self) -> bool:
+        target = self.target
+        history = self.simulation.particle_history(target)["history"]
+        if history is None or len(history) == 0:
+            return True
+        if history[0][1] == self._current_point:
+            return True
+        return False
+    @property
+    def is_end(self) -> bool:
+        target = self.target
+        history = self.simulation.particle_history(target)["history"]
+        if history is None or len(history) == 0:
+            return True
+        if history[-1][1] == self._current_point:
+            return True
+        return False
+    @property
+    def impator_has_chain(self) -> bool:
+        impactor = self.impactor
+        return self.particle_has_chain(impactor)
+    
+    def particle_has_chain(self, particle_index: int) -> bool:
+        history = self.simulation.particle_history(particle_index)["history"]
+        if history is None or len(history) == 0:
+            return False
+        return True
+
+    def move_to_last(self) -> Self:
+        assert not self.is_beginning
+        target = self.target
+        history = self.simulation.particle_history(target)["history"]
+        history_chain = [history[i][1] for i in range(len(history))]
+        current_in_chain = history_chain.index(self._current_point)
+        self._current_point = history_chain[current_in_chain-1]
+        return self
+
+    def move_to_next(self) -> Self:
+        assert not self.is_end
+        target = self.target
+        history = self.simulation.particle_history(target)["history"]
+        history_chain = [history[i][1] for i in range(len(history))]
+        current_in_chain = history_chain.index(self._current_point)
+        self._current_point = history_chain[current_in_chain+1]
+        return self
+    
+    def move_to_impactor(self) -> Self:
+        assert self.impator_has_chain
+        impactor = self.impactor
+        history = self.simulation.particle_history(impactor)["history"]
+        self._current_point = history[-1][1]
+        return self
+
+    def end_of_particle(self,i:int) -> Self:
+        particle_history = self.simulation.particle_history(i)
+        history = particle_history["history"]
+        if history is None or len(history) == 0:
+            terminal_type = particle_history["terminal_type"]
+            terminal_event = particle_history["terminal_event"]
+            if terminal_type in ["ejection","collision"]:
+                raise ValueError(f"Particle {i} has no collision history as a target. And It finally ends by {terminal_type} with event index {terminal_event[1]}.")
+            else:
+                raise ValueError(f"Particle {i} has no collision history as a target. And It survived until the end of the simulation.")
+        history_chain = [history[i][1] for i in range(len(history))]
+        self._current_point = history_chain[-1]
+        return self
+    
+    @statstic_time
+    def melt_events(self,i:int) -> CollisionEvent:
+        if self._collision_events[i] is None:
+            collision = self.simulation.collisions[i]
+            self._collision_events[i] = CollisionEvent(collision, **self._event_args)
+        event = self._collision_events[i]
+        assert event is not None
+        return event
+    
+    @statstic_time
+    def get_event_melt_fractions(self,i:int) -> float:
+        if self._melt_fractions_event is None:
+            len_collisions = len(self.simulation.collisions)
+            self._melt_fractions_event = np.nan * np.ones(len_collisions)
+        if self._melt_fractions_event[i] is not np.nan:
+            return float(self._melt_fractions_event[i])
+        else:
+            event = self.melt_events(i)
+            melt_fraction = event.melt_fraction
+            self._melt_fractions_event[i] = melt_fraction
+            return melt_fraction
+    
+    @lru_cache(maxsize=None)
+    @statstic_time
+    def get_particle_melt_fractions(self,i:int) -> float:
+        particle_history = self.simulation.particle_history(i)["history"]
+        initial_melt_frac = 0.0
+        if len(particle_history) == 0:
+            return initial_melt_frac
+        if i in self._melt_evolution_particles:
+            return float(self._melt_evolution_particles[i][-1,0])
+        else:
+            self._melt_evolution_particles[i] = np.zeros((len(particle_history)+1, 3))
+            self._melt_evolution_particles[i][0,0] = initial_melt_frac
+            self._melt_evolution_particles[i][0,1] = 0.0
+            self._melt_evolution_particles[i][0,2] = 0.0
+        for index_history, (event, collision_index) in  enumerate(particle_history):
+            new_frac = self.get_event_melt_fractions(collision_index)
+            bodyi = event["indexi"]
+            bodyj = event["indexj"]
+            massi = event["mi"]
+            massj = event["mj"]
+            time = event["time"]
+            if bodyi == i:
+                melti = initial_melt_frac
+                meltj = self.get_particle_melt_fractions(bodyj)
+                origin_mass = massi
+            else:
+                meltj = initial_melt_frac
+                melti = self.get_particle_melt_fractions(bodyi)
+                origin_mass = massj
+            if index_history == 0:
+                self._melt_evolution_particles[i][index_history,2] = origin_mass
+            self._melt_evolution_particles[i][index_history+1,2] = massi + massj
+            inherited_melt = (melti * massi + meltj * massj) / (massi + massj)
+            initial_melt_frac = min(1.0, inherited_melt + new_frac)
+            self._melt_evolution_particles[i][index_history+1,0] = initial_melt_frac
+            self._melt_evolution_particles[i][index_history+1,1] = time
+            self._collision_index2particle_evolution_index[collision_index] = (i, index_history+1)
+        return initial_melt_frac
+
+    def get_particle_melt_evolution(self,i:int) -> np.ndarray:
+        if i in self._melt_evolution_particles:
+            return self._melt_evolution_particles[i]
+        else:
+            self.get_particle_melt_fractions(i)
+            return self._melt_evolution_particles[i]
+    
 class CollisionResult():
     def __init__(self, **kwargs) -> None:
         magma_init_keys = ['impact_angle','Mtotal','gamma','vel']
@@ -408,9 +595,7 @@ def test_magma_model() -> None:
     plt.tight_layout()
     plt.savefig('collision_result_test.pdf')
 
-if __name__ == "__main__":
-    # main()
-    test_magma_model()
+
 def main() -> None:
     example_data = {
         "time":29457364.762859217823,
@@ -443,3 +628,7 @@ def main() -> None:
     #print(collision_event.total_mass, collision_event.gamma, collision_event.vel_escape_ratio, collision_event.impact_angle, collision_event.melt_fraction, collision_event.melt_T_increase())
     T, t_total, M_loss_total, C = collision_event.devoltilize()
     print(T, t_total/(3600*24*365), M_loss_total, C)
+
+if __name__ == "__main__":
+    main()
+    # test_magma_model()

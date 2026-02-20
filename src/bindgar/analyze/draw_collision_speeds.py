@@ -136,7 +136,7 @@ def draw_collision_speeds(ax: Axes,
         for simpath in simpath_lists:
             simobj = SimulationOutput(simpath)
             concern_indexes = simobj.filter_final_indexes(mass_filter)
-            for collision in simobj.collisions():
+            for collision in simobj.collisions:
                 if collision['indexi'] in concern_indexes or collision['indexj'] in concern_indexes:
                     dvx = collision['vxi'] - collision['vxj']
                     dvy = collision['vyi'] - collision['vyj']
@@ -197,7 +197,7 @@ def draw_speed_mass_distribution(ax: Axes,
             angles_sim = []
             yita_sim = []
             total_masses.append(total_init_mass)
-            for collision in simobj.collisions():
+            for collision in simobj.collisions:
                 dvx = collision['vxi'] - collision['vxj']
                 dvy = collision['vyi'] - collision['vyj']
                 dvz = collision['vzi'] - collision['vzj']

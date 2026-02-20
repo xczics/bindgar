@@ -2,6 +2,11 @@ from typing import List
 import numpy as np
 from typing import Union, Optional, Tuple, Dict
 from matplotlib.axes import Axes
+import os
+
+STATSTIC_TIME = True
+if "STATSTIC_BINGDAR_TIME" in os.environ:
+    STATSTIC_TIME = os.environ["STATSTIC_BINGDAR_TIME"].lower() in ("true", "1", "yes")
 
 class CyclicList:
     def __init__(self, data: List):
@@ -228,7 +233,39 @@ def bg_colorbar(ax: Axes,
         va='top',
         fontsize=title_size,
     )
-    
-    
 
+
+# An wrapper to statstic running time of a function. 
+func_call_info = {}
+def statstic_time(func):
+    import time
+    if not STATSTIC_TIME:
+        return func
+    func_name = func.__name__
+    # 如果函数是类的方法，添加类名作为前缀
+    func_qualname = func.__qualname__
+    func_name = func_qualname if func_qualname else func_name
+    if func_name not in func_call_info:
+        func_call_info[func_name] = {
+            "call_count": 0,
+            "total_time": 0.0,
+        }
+    def wrappered_func(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        func_call_info[func_name]["call_count"] += 1
+        func_call_info[func_name]["total_time"] += elapsed_time
+        return result
+    return wrappered_func
+
+# change the behavior before exit, to print the statstic time of each function if STATSTIC_TIME is True.
+import atexit
+def print_statstic_time():
+    print("Function call statistics:")
+    for func_name, info in func_call_info.items():
+        print(f"{func_name}: called {info['call_count']} times, total time {info['total_time']:.4f} seconds")
+if STATSTIC_TIME:
+    atexit.register(print_statstic_time)
     

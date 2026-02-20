@@ -20,7 +20,7 @@ def main():
         print(f"Processing simulation: {simulation}")
         simobj = SimulationOutput(simulation)
         devol_out = simobj.open_write_pip("devol.out",fmt="<< m_melt:.6e c:9.6f t:.2f m_loss:.6e T_increase:9.2f >>")
-        collisions = simobj.collisions()
+        collisions = simobj.collisions
         with collisions:
             for index, collision in enumerate(collisions):
                 print(f"Processing collision {index}")

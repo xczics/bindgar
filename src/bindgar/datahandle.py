@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import cached_property
 from typing import List, Union, Sequence
 import os
 
@@ -156,6 +157,25 @@ class SimulationOutputData:
         self.file.write(line + "\n")
     def close(self):
         self.file.close()
+    @cached_property
+    def _indexes(self):
+        # For reading mode, and not reverse reading, build an index to quickly access an given line.
+        if self.mode != "r":
+            raise ValueError("File not opened in read mode")
+        current_pos = self.file.tell()
+        self.file.seek(0)
+        index = []
+        if self.skip_header:
+            next(self.file)
+        while True:
+            pos = self.file.tell()
+            line = self.file.readline()
+            if not line:
+                break
+            index.append(pos)
+        self.file.seek(current_pos)
+        self._len = len(index)
+        return index
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc_value, traceback):
@@ -173,3 +193,16 @@ class SimulationOutputData:
         self.file.seek(current_pos)
         self._len = length
         return length
+    # define an method to support random access to a given line number.
+    def __getitem__(self, index):
+        if self.mode != "r":
+            raise ValueError("File not opened in read mode")
+        if index < 0:
+            index += self._len
+        if index < 0 or index >= self._len:
+            raise IndexError("Index out of range")
+        pos = self._indexes[index]
+        self.file.seek(pos)
+        line = self.file.readline()
+        data_dict = string2data(self.format_list, line, self.split)
+        return data_dict

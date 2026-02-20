@@ -95,6 +95,6 @@ def impact_angle_radians(delx: np.ndarray, delv: np.ndarray) ->float:
         return 0.0
     cos_theta = np.dot(delx, delv) / (delx_norm * delv_norm)
     cos_theta = np.clip(cos_theta, -1.0, 1.0)  # Ensure the value is within valid range for acos
-    theta = np.abs(acos(cos_theta))
+    theta = acos(np.abs(cos_theta))
     return theta
     

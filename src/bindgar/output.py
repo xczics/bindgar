@@ -45,12 +45,13 @@ Dependencies:
     - .physics: For physical constants.
     - .common: For color conversion utilities.
 """
-from typing import List, Union, Any, Callable, Optional, overload
+from typing import List, Union, Any, Callable, Optional, overload, Dict
 import glob
 from os import path
 from .datahandle import SimulationOutputData, pharse_format, string2data
 from .physics import M_EARTH, M_SUN
-from functools import lru_cache
+from functools import lru_cache, cached_property
+from .common import statstic_time
 import math
 
 DEFAULT_Ejction_Format = "<< time index m r x y z vx vy vz Sx Sy Sz case >>"
@@ -58,9 +59,12 @@ DEFAULT_Collisions_Format = "<< time indexi mi ri xi yi zi vxi vyi vzi Sxi Syi S
 
 
 class SimulationOutput:
-    def __init__(self, path: str):
+    def __init__(self, path: str,gass_giants_indexes: List[int]|None = None):
         self.path = path
         self.input_params = {}
+        if gass_giants_indexes is not None:
+            self.set_gass_giant_indexes(gass_giants_indexes)
+        self._history_built = False
     
     @overload
     def get_input_params(self, params: str) -> str: ...
@@ -95,6 +99,7 @@ class SimulationOutput:
         else:
             return [self.input_params[p] for p in params]
     
+    @statstic_time
     def load_last_output(self) -> SimulationOutputData:
         # Output file is like Out{Output name}_xxxx.dat, we need to find the last xxxx, xxxx is the steps
         output_name = self.get_input_params("Output name")
@@ -124,10 +129,16 @@ class SimulationOutput:
         init_file =  path.join(self.path, init_file)
         init_format = self.get_input_params("Input file Format")
         return SimulationOutputData(init_file, init_format, mode="r", skip_header=False)
-
+    
+    @cached_property
     def collisions(self, collision_format: str = DEFAULT_Collisions_Format) -> SimulationOutputData:
         collision_file = path.join(self.path, f"Collisions{self.get_input_params('Output name')}.dat")
         return SimulationOutputData(collision_file, collision_format, mode="r", skip_header=False)
+    
+    @cached_property
+    def ejections(self, ejection_format: str = DEFAULT_Ejction_Format) -> SimulationOutputData:
+        ejection_file = path.join(self.path, f"Ejections{self.get_input_params('Output name')}.dat")
+        return SimulationOutputData(ejection_file, ejection_format, mode="r", skip_header=False)
     
     def filter_final_indexes(self, filter_func: Callable) -> List[int]:
         last_output = self.load_last_output()
@@ -175,6 +186,109 @@ class SimulationOutput:
     
     def set_gass_giant_indexes(self, indexes: List[int]) -> None:
         self.gass_giant_indexes = indexes
+    
+    @statstic_time
+    def built_history(self) -> None:
+        """
+        read collisions and ejections, build the history of each particles.
+        """
+        self._cached_history = {}
+        collisions, ejections = self.collisions, self.ejections
+        with collisions, ejections:
+            ci=0
+            ei=0
+            for collision in collisions:
+                for idx in [collision["indexi"], collision["indexj"]]:
+                    if idx not in self._cached_history:
+                        self._cached_history[idx] = []
+                    self._cached_history[idx].append((0,collision,ci))
+                ci+=1
+            for ejection in ejections:
+                idx = ejection["index"]
+                if idx not in self._cached_history:
+                    self._cached_history[idx] = []
+                self._cached_history[idx].append((1,ejection,ei))
+                ei+=1
+        self._history_built = True
+    
+    def _history_from_cache(self, particle_index: int) -> Dict[str, Any]:
+        if particle_index not in self._cached_history:
+            return {"terminal_type": "survival", "terminal_event": None, "history": []}
+        history = []
+        terminal_type = None
+        terminal_event = None
+        last_event = self._cached_history[particle_index][-1]
+        if last_event[0] == 0:
+            terminal_type = "collision"
+            terminal_event = (last_event[1], last_event[2])
+            if particle_index in self._survivals:
+                terminal_type = "survival"
+                terminal_event = None
+                history = [(event[1], event[2]) for event in self._cached_history[particle_index]]
+            else:
+                history = [(event[1], event[2]) for event in self._cached_history[particle_index][:-1]]
+        elif last_event[0] == 1:
+            terminal_type = "ejection"
+            terminal_event = (last_event[1], last_event[2])
+            history = [(event[1], event[2]) for event in self._cached_history[particle_index][:-1]]
+        return {"terminal_type": terminal_type,"terminal_event":terminal_event,"history": history}
+
+    @lru_cache(maxsize=None)
+    @statstic_time
+    def particle_history(self, particle_index: int) -> Dict[str, Any]:
+        if self._history_built:
+            return self._history_from_cache(particle_index)
+        history = []
+        terminal_type = None
+        terminal_event = None
+        collisions = self.collisions
+        ejections = self.ejections
+        ci = 0
+        ei = 0
+        with collisions, ejections:
+            for collision in collisions:
+                if collision["indexi"] == particle_index or collision["indexj"] == particle_index:
+                    history.append((collision, ci))
+                ci+=1
+            for ejection in ejections:
+                if ejection["index"] == particle_index:
+                    terminal_type = "ejection"
+                    terminal_event = (ejection, ei)
+                    break
+                ei+=1
+            else:
+                # check if the particle is still in the final output
+                if particle_index in self._survivals:
+                    terminal_type = "survival"
+                    terminal_event = None
+                else:
+                    terminal_type = "collision"
+                    terminal_event = history[-1] if len(history) > 0 else None
+                    history.pop()  # remove the last collision, because it is not the terminal event
+        return {"terminal_type": terminal_type,"terminal_event":terminal_event,"history": history}
+    
+    @cached_property
+    @statstic_time
+    def _survivals(self) -> set:
+        last_output = self.load_last_output()
+        survivals = set()
+        with last_output:
+            for item in last_output:
+                survivals.add(item["i"])
+        return survivals
+    
+    def survivals(self) -> List[int]:
+        return list(self._survivals)
+    
+    @property
+    def survivals_without_gas_giants_sets(self) -> set:
+        if hasattr(self, "gass_giant_indexes"):
+            return self._survivals - set(self.gass_giant_indexes)
+        else:
+            raise ValueError("Gas giant indexes not set. Please call set_gass_giant_indexes() first.")
+    @property
+    def survivals_without_gas_giants(self) -> List[int]:
+        return list(self.survivals_without_gas_giants_sets)
     
     @lru_cache(maxsize=2)
     def get_init_total_mass(self, skip_gass_gaint: bool = False) -> float:
