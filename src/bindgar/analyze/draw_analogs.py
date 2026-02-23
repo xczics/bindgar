@@ -513,7 +513,7 @@ def main():
         "color_params" : {
             "default": None,
             "help": "auto set the colors by the simulation set, you can specify the properties for color mapping. It should be the same size as simulations_lists",
-            "type": List,
+            "type": list,
         },
         "label" : {
             "default": None,

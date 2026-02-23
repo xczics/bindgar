@@ -11,6 +11,8 @@ from .nakajima.melt_model import Model
 from .magma_cooling import MagmaOceanParameters,devoltilization
 from ..output import SimulationOutput
 from ..common import statstic_time
+import os
+import pickle
 
 class CollisionEvent():
     """
@@ -203,9 +205,21 @@ class SimulationMeltsEvolution():
         self.simulation.built_history()
         self._melt_fractions_event = None
         self._collision_events : List[CollisionEvent|None] = [None] * len(self.simulation.collisions)
-        self._melt_evolution_particles = {}
         self._collision_index2particle_evolution_index : List[Tuple[int|None,int|None]] = [(None,None)] * len(self.simulation.collisions)
         self._current_point = 0
+        original_path = self.simulation.path
+        original_dir = os.path.dirname(original_path)
+        melt_cache_file_name = ".meltfrac" + self.simulation.get_input_params("Output name").replace(" ","-") + ".npy"
+        evol_cache_file_name = ".meltevol" + self.simulation.get_input_params("Output name").replace(" ","-") + ".pkl"
+        self._cache_melt_frac_file_path = os.path.join(original_dir, melt_cache_file_name)
+        self._cache_evol_file_path = os.path.join(original_dir, evol_cache_file_name)
+        self._new_melt_frac_since_last_cache = 0
+        if os.path.exists(self._cache_evol_file_path):
+            self._melt_evolution_particles = pickle.load(open(self._cache_evol_file_path, "rb"))
+        else:
+            self._melt_evolution_particles = {}
+        self._evol_cache_updated = True
+        self._unexpected_melt_event = set()
     @cached_property
     def final_particles(self) -> List[int]:
         return self.simulation.survivals()
@@ -321,24 +335,43 @@ class SimulationMeltsEvolution():
     @statstic_time
     def get_event_melt_fractions(self,i:int) -> float:
         if self._melt_fractions_event is None:
-            len_collisions = len(self.simulation.collisions)
-            self._melt_fractions_event = np.nan * np.ones(len_collisions)
-        if self._melt_fractions_event[i] is not np.nan:
+            #cache the melt fractions for all events in the disk.
+            if os.path.exists(self._cache_melt_frac_file_path):
+                self._melt_fractions_event = np.load(self._cache_melt_frac_file_path)
+            else:
+                len_collisions = len(self.simulation.collisions)
+                self._melt_fractions_event = np.nan * np.ones(len_collisions)
+        if not np.isnan(self._melt_fractions_event[i]):
             return float(self._melt_fractions_event[i])
         else:
+            if i in self._unexpected_melt_event:
+                return 0.0
             event = self.melt_events(i)
-            melt_fraction = event.melt_fraction
+            try:
+                melt_fraction = event.melt_fraction
+            except:
+                self._unexpected_melt_event.add(i)
+                return 0.0
             self._melt_fractions_event[i] = melt_fraction
+            self._new_melt_frac_since_last_cache += 1
+            if self._new_melt_frac_since_last_cache >= 5 or np.all(~np.isnan(self._melt_fractions_event)):
+                # update the cache file
+                np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
+                self._new_melt_frac_since_last_cache = 0
             return melt_fraction
     
     @lru_cache(maxsize=None)
     @statstic_time
-    def get_particle_melt_fractions(self,i:int) -> float:
+    def get_particle_melt_fractions(self,i:int,dump_cache=True) -> float:
         particle_history = self.simulation.particle_history(i)["history"]
         initial_melt_frac = 0.0
         if len(particle_history) == 0:
             return initial_melt_frac
+        else:
+            #print(i,"history length:", len(particle_history))
+            pass
         if i in self._melt_evolution_particles:
+            #print(i, float(self._melt_evolution_particles[i][-1,0]))
             return float(self._melt_evolution_particles[i][-1,0])
         else:
             self._melt_evolution_particles[i] = np.zeros((len(particle_history)+1, 3))
@@ -349,25 +382,32 @@ class SimulationMeltsEvolution():
             new_frac = self.get_event_melt_fractions(collision_index)
             bodyi = event["indexi"]
             bodyj = event["indexj"]
-            massi = event["mi"]
-            massj = event["mj"]
+            massi:float = event["mi"]
+            massj:float = event["mj"]
             time = event["time"]
             if bodyi == i:
                 melti = initial_melt_frac
-                meltj = self.get_particle_melt_fractions(bodyj)
+                meltj = self.get_particle_melt_fractions(bodyj, dump_cache=False)
                 origin_mass = massi
             else:
                 meltj = initial_melt_frac
-                melti = self.get_particle_melt_fractions(bodyi)
+                melti = self.get_particle_melt_fractions(bodyi, dump_cache=False)
                 origin_mass = massj
             if index_history == 0:
                 self._melt_evolution_particles[i][index_history,2] = origin_mass
             self._melt_evolution_particles[i][index_history+1,2] = massi + massj
             inherited_melt = (melti * massi + meltj * massj) / (massi + massj)
-            initial_melt_frac = inherited_melt + new_frac
+            print(i, new_frac, inherited_melt)
+            initial_melt_frac = float(inherited_melt + new_frac)
             self._melt_evolution_particles[i][index_history+1,0] = initial_melt_frac
             self._melt_evolution_particles[i][index_history+1,1] = time
             self._collision_index2particle_evolution_index[collision_index] = (i, index_history+1)
+            if dump_cache:
+                with open(self._cache_evol_file_path, "wb") as f:
+                    pickle.dump(self._melt_evolution_particles, f)
+                self._evol_cache_updated = True
+            else:
+                self._evol_cache_updated = False
         return initial_melt_frac
 
     def get_particle_melt_evolution(self,i:int) -> np.ndarray:
@@ -376,6 +416,13 @@ class SimulationMeltsEvolution():
         else:
             self.get_particle_melt_fractions(i)
             return self._melt_evolution_particles[i]
+    # 在程序退出，或对象被GC时，保存缓存np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
+    def __del__(self):
+        if self._melt_fractions_event is not None and self._new_melt_frac_since_last_cache > 0:
+            np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
+        if hasattr(self, "_melt_evolution_particles") and not self._evol_cache_updated:
+            with open(self._cache_evol_file_path, "wb") as f:
+                pickle.dump(self._melt_evolution_particles, f)
     
 class CollisionResult():
     def __init__(self, **kwargs) -> None:

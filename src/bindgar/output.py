@@ -150,7 +150,7 @@ class SimulationOutput:
     
     def _get_total_mass(self, data: SimulationOutputData, skip_indexes: List[int]|None = None) -> float:
         if skip_indexes is None:
-            skip_indexes = [-1]
+            skip_indexes = []
         total_mass = 0.0
         if any(value < 0 for value in skip_indexes):
             len_data = len(data)
@@ -165,7 +165,7 @@ class SimulationOutput:
     
     def _get_num_particles(self, data: SimulationOutputData, skip_indexes: List[int]|None = None) -> int:
         if skip_indexes is None:
-            skip_indexes = [-1]
+            skip_indexes = []
         total_num = 0
         if any(value < 0 for value in skip_indexes):
             len_data = len(data)
@@ -185,6 +185,10 @@ class SimulationOutput:
         return SimulationOutputData(file_path, format_spec=fmt, **kwargs)
     
     def set_gass_giant_indexes(self, indexes: List[int]) -> None:
+        if any(value<0 for value in indexes):
+            #print(self.get_init_num_particles())
+            num_particles = self.get_init_num_particles()
+            indexes = [i if i >= 0 else num_particles + i for i in indexes]
         self.gass_giant_indexes = indexes
     
     @statstic_time
@@ -290,6 +294,23 @@ class SimulationOutput:
     def survivals_without_gas_giants(self) -> List[int]:
         return list(self.survivals_without_gas_giants_sets)
     
+    @cached_property
+    def survivals_data(self) -> List[Dict[str, Any]]:
+        last_output = self.load_last_output()
+        survivals_data = []
+        with last_output:
+            for item in last_output:
+                if item["i"] in self._survivals:
+                    survivals_data.append(item)
+        return survivals_data
+    
+    @property
+    def survivals_without_gas_giants_data(self) -> List[Dict[str, Any]]:
+        if hasattr(self, "gass_giant_indexes"):
+            return [item for item in self.survivals_data if item["i"] in self.survivals_without_gas_giants_sets]
+        else:
+            raise ValueError("Gas giant indexes not set. Please call set_gass_giant_indexes() first.")
+
     @lru_cache(maxsize=2)
     def get_init_total_mass(self, skip_gass_gaint: bool = False) -> float:
         if not skip_gass_gaint:

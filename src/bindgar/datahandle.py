@@ -162,6 +162,8 @@ class SimulationOutputData:
         # For reading mode, and not reverse reading, build an index to quickly access an given line.
         if self.mode != "r":
             raise ValueError("File not opened in read mode")
+        if self.is_closed():
+            self.open()
         current_pos = self.file.tell()
         self.file.seek(0)
         index = []
@@ -177,20 +179,34 @@ class SimulationOutputData:
         self._len = len(index)
         return index
     def __enter__(self):
+        if self.is_closed():
+            self.open()
         return self
     def __exit__(self, exc_type, exc_value, traceback):
         # I don't know how python handle the __exit__ parameters, I just use the version suggested by copilot
         self.close()
+    def is_closed(self):
+        return self.file.closed
+    def open(self):
+        self.file = open(self.filename, self.mode)
     # define a len function to return the number of lines in the file, use system call to avoid loading the whole file into memory
     def __len__(self):
         if self._len is not None:
             return self._len
         if self.mode != "r":
             raise ValueError("File not opened in read mode")
-        current_pos = self.file.tell()
-        self.file.seek(0)
+        opened_flag = not self.is_closed()
+        current_pos = 0
+        if not opened_flag:
+            self.open()
+        else:
+            current_pos = self.file.tell()
+            self.file.seek(0)
         length = sum(1 for _ in self.file) - (1 if self.skip_header else 0)
-        self.file.seek(current_pos)
+        if opened_flag:
+            self.file.seek(current_pos)
+        else:
+            self.close()
         self._len = length
         return length
     # define an method to support random access to a given line number.
