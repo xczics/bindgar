@@ -364,7 +364,7 @@ class SimulationMeltsEvolution():
                 self._melt_evolution_particles[i][index_history,2] = origin_mass
             self._melt_evolution_particles[i][index_history+1,2] = massi + massj
             inherited_melt = (melti * massi + meltj * massj) / (massi + massj)
-            initial_melt_frac = min(1.0, inherited_melt + new_frac)
+            initial_melt_frac = inherited_melt + new_frac
             self._melt_evolution_particles[i][index_history+1,0] = initial_melt_frac
             self._melt_evolution_particles[i][index_history+1,1] = time
             self._collision_index2particle_evolution_index[collision_index] = (i, index_history+1)
