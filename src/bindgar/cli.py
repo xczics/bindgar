@@ -144,6 +144,7 @@ def main():
     _dynamic_import_analyze_modules()
     from . import setupgener
     from . import vi
+    from .slurm import model
     command_name = registry.check_or_help()
     registry.run(command_name)
 

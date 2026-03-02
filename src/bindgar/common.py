@@ -4,7 +4,7 @@ from typing import Union, Optional, Tuple, Dict
 from matplotlib.axes import Axes
 import os
 
-STATSTIC_TIME = True
+STATSTIC_TIME = False
 if "STATSTIC_BINGDAR_TIME" in os.environ:
     STATSTIC_TIME = os.environ["STATSTIC_BINGDAR_TIME"].lower() in ("true", "1", "yes")
 
