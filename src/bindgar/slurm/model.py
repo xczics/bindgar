@@ -4,6 +4,7 @@ import subprocess
 from typing import Self
 from ..cli import register_command
 from ..input import InputLoader, InputAcceptable
+import sys
 data_base_path = os.environ.get("BINDGAR_SLURM_DATA_BASE", "~/.bindgar_slurm_data_base.db")
 
 # define the enum for the status of the job
@@ -110,7 +111,7 @@ class ConfigurationSet(peewee.Model):
 # A model to store the slurm job informations: The dir job is running in, the job id in slurm system, the status of the job (finished, unfinished, failed), the re-submit script if the job is failed, the re-submit script if the job is unfinished due to time limit.
 class SlurmJob(peewee.Model):
     # job_id is the primary key of the table, and it should be set automatically by the database.
-    job_id = peewee.AutoField()
+    job_id = peewee.AutoField() 
     current_slurm_id = peewee.CharField(unique=True)
     job_dir = peewee.CharField()
     status = peewee.CharField()
@@ -119,7 +120,7 @@ class SlurmJob(peewee.Model):
     unfinished_times = peewee.IntegerField(default=0)
     failed_times = peewee.IntegerField(default=0)
     max_unfinished_times = peewee.IntegerField(default=3)
-    max_unfinished_times = peewee.IntegerField(default=3)
+    max_failed_times = peewee.IntegerField(default=3)
     finished_flag_file = peewee.CharField(default="finished") # if the job is finished, there should be a file in the job dir, and the last line of the file should be "1". This file is managed by the slurm task itself.
     error_flag_file = peewee.CharField(default="failed") # if the job is failed, there should be a file in the job dir, and the last line of the file should be "-1", else it should be "0". This file is managed by the slurm task itself.
     configure_set = peewee.ForeignKeyField(ConfigurationSet, backref='jobs')
@@ -162,7 +163,7 @@ class SlurmJob(peewee.Model):
             return JobStatus.PENDING
         elif status in ['RUNNING', 'COMPLETING']:
             return JobStatus.RUNNING
-        elif status in ['COMPLETED','FAILED', 'CANCELLED', 'TIMEOUT', 'PREEMPTED']:
+        elif status in ['COMPLETED','FAILED', 'CANCELLED', 'TIMEOUT', 'PREEMPTED','CANCELLED+']:
             # check the finished flag file to determine whether the job is finished or unfinished
             finished_flag = None
             failed_flag = None
@@ -183,8 +184,88 @@ class SlurmJob(peewee.Model):
         else:
             print(f"Unknown status {status} for slurm job {slurm_id}, please check the job status manually.")    
             return JobStatus.CHECK_REQUIRED
-    
     def resubmit_failed_task(self) -> str:
+        return self._resubmit_task(
+            script_type="failed", 
+            script=self.resubmit_script_failed, # type: ignore
+            times=self.failed_times # type: ignore
+        )
+
+    def resubmit_unfinished_task(self) -> str:
+        return self._resubmit_task(
+            script_type="unfinished", 
+            script=self.resubmit_script_unfinished, # type: ignore
+            times=self.unfinished_times # type: ignore
+        )
+
+    def _resubmit_task(self, script_type: str, script: str, times: int) -> str:
+        if script is None:
+            raise ValueError(f"No resubmit script for {script_type} job {self.job_id:08x}, "
+                            f"please check the job manually.")
+        
+        # 生成新的slurm文件
+        os.makedirs(self.configure_set.slurm_file_path, exist_ok=True)
+        new_slurm_file_path = os.path.join(
+            self.configure_set.slurm_file_path, 
+            f"{self.job_id:08x}_resubmit_{script_type}_{times}.slurm"
+        )
+        
+        # 写入slurm文件内容
+        with open(new_slurm_file_path, 'w') as f:
+            self._write_slurm_header(f, script_type, times)
+            self._write_module_and_env(f)
+            self._write_work_directory(f)
+            self._write_execution_script(f, script_type, script, times)
+        
+        # 提交作业并返回新的slurm ID
+        result = subprocess.run(
+            ['sbatch', new_slurm_file_path], 
+            stdout=subprocess.PIPE, 
+            cwd=self.configure_set.slurm_file_path
+        )
+        new_slurm_id = result.stdout.decode('utf-8').strip().split()[-1]
+        return new_slurm_id
+
+    def _write_slurm_header(self, f, script_type: str, times: int) -> None:
+        """写入SLURM脚本的头部信息"""
+        f.write("#!/bin/bash\n")
+        f.write(f"#SBATCH --job-name={self.job_id:08x}_resubmit_{script_type}_{times}\n")
+        f.write(f"#SBATCH --output={self.job_id:08x}_resubmit_{script_type}_{times}.out\n")
+        f.write(f"#SBATCH --error={self.job_id:08x}_resubmit_{script_type}_{times}.err\n")
+        f.write(f"#SBATCH --ntasks={self.configure_set.ntasks}\n")
+        f.write(f"#SBATCH --cpus-per-task={self.configure_set.cpu_per_task}\n")
+        f.write(f"#SBATCH --partition={self.configure_set.queue}\n")
+
+    def _write_module_and_env(self, f) -> None:
+        """写入模块加载和环境变量设置"""
+        if self.configure_set.module_tasks:
+            module_tasks = self.configure_set.module_tasks.split(';')
+            for module_task in module_tasks:
+                f.write(f"module {module_task}\n")
+        
+        if self.configure_set.env_sets:
+            env_sets = self.configure_set.env_sets.split(';')
+            for env_set in env_sets:
+                f.write(f"{env_set}\n")
+
+    def _write_work_directory(self, f) -> None:
+        """写入工作目录切换"""
+        f.write(f"cd {self.job_dir}\n")
+
+    def _write_execution_script(self, f, script_type: str, script: str, times: int) -> None:
+        """写入执行脚本和错误处理逻辑"""
+        f.write(f"trap 'echo 0 > {self.finished_flag_file}; echo -1 > {self.error_flag_file}' EXIT\n")
+        f.write(f"{script} > {self.job_dir}/resubmit_{script_type}_{times}.log 2>&1\n")
+        
+        f.write(f"if [ $? -eq 0 ]; then\n")
+        f.write(f"    echo 1 > {self.finished_flag_file}\n")
+        f.write(f"    echo 0 > {self.error_flag_file}\n")
+        f.write(f"    trap - EXIT\n")
+        f.write(f"else\n")
+        f.write(f"    echo 0 > {self.finished_flag_file}\n")
+        f.write(f"    echo -1 > {self.error_flag_file}\n")
+        f.write(f"fi\n")
+    def _ref_resubmit_failed_task(self) -> str: # no longer used, but keep it for reference
         if self.resubmit_script_failed is not None:
             # generate a new slurm file 
             if not os.path.exists(self.configure_set.slurm_file_path):
@@ -207,7 +288,7 @@ class SlurmJob(peewee.Model):
                         f.write(f"{env_set}\n")
                 f.write(f"cd {self.job_dir}\n")
                 # include the resubmit script with a trap to handle unexpected exits
-                f.write("trap 'echo 0 > {self.finished_flag_file}; echo -1 > {self.error_flag_file}' EXIT\n")
+                f.write(f"trap 'echo 0 > {self.finished_flag_file}; echo -1 > {self.error_flag_file}' EXIT\n")
                 f.write(f"{self.resubmit_script_failed} > {self.job_dir}/resubmit_failed_{self.failed_times}.log 2>&1\n")
                 f.write(f"if [ $? -eq 0 ]; then\n")
                 f.write(f"    echo 1 > {self.finished_flag_file}\n")
@@ -218,13 +299,14 @@ class SlurmJob(peewee.Model):
                 f.write(f"    echo -1 > {self.error_flag_file}\n")
                 f.write(f"fi\n")
             # submit the new slurm file and return the new slurm id
-            result = subprocess.run(['sbatch', new_slurm_file_path], stdout=subprocess.PIPE)
+            # cd the slurm file path before submitting the job, to avoid the problem that the slurm file path is too long.
+            result = subprocess.run(['sbatch', new_slurm_file_path], stdout=subprocess.PIPE, cwd=self.configure_set.slurm_file_path)
             new_slurm_id = result.stdout.decode('utf-8').strip().split()[-1]
             return new_slurm_id
         else:
             raise ValueError(f"No resubmit script for failed job {self.job_id:08x}, please check the job manually.")
     
-    def resubmit_unfinished_task(self) -> str:
+    def _ref_resubmit_unfinished_task(self) -> str: # no longer used, but keep it for reference
         if self.resubmit_script_unfinished is not None:
             # generate a new slurm file 
             if not os.path.exists(self.configure_set.slurm_file_path):
@@ -247,7 +329,7 @@ class SlurmJob(peewee.Model):
                         f.write(f"{env_set}\n")
                 f.write(f"cd {self.job_dir}\n")
                 # include the resubmit script with a trap to handle unexpected exits
-                f.write("trap 'echo 0 > {self.finished_flag_file}; echo -1 > {self.error_flag_file}' EXIT\n")
+                f.write(f"trap 'echo 0 > {self.finished_flag_file}; echo -1 > {self.error_flag_file}' EXIT\n")
                 f.write(f"{self.resubmit_script_unfinished} > {self.job_dir}/resubmit_unfinished_{self.unfinished_times}.log 2>&1\n")
                 f.write(f"if [ $? -eq 0 ]; then\n")
                 f.write(f"    echo 1 > {self.finished_flag_file}\n")
@@ -258,60 +340,60 @@ class SlurmJob(peewee.Model):
                 f.write(f"    echo -1 > {self.error_flag_file}\n")
                 f.write(f"fi\n")
             # submit the new slurm file and return the new slurm id
-            result = subprocess.run(['sbatch', new_slurm_file_path], stdout=subprocess.PIPE)
+            result = subprocess.run(['sbatch', new_slurm_file_path], stdout=subprocess.PIPE, cwd=self.configure_set.slurm_file_path)
             new_slurm_id = result.stdout.decode('utf-8').strip().split()[-1]
             return new_slurm_id
         else:
             raise ValueError(f"No resubmit script for unfinished job {self.job_id:08x}, please check the job manually.")
         
     def update_job_status(self) -> None:
-        job_id = self.job_id
-        job = SlurmJob.get(SlurmJob.job_id == job_id)
-        current_slurm_id = job.current_slurm_id
-        current_status = job.status
+        current_slurm_id = self.current_slurm_id
+        current_status = self.status
         if current_status == JobStatus.FINISHED:
             return
         # if the job is pending or running, check the status in slurm system
         if current_status in [JobStatus.PENDING, JobStatus.RUNNING]:
-            slurm_status = self.check_slurm_status(current_slurm_id)
+            slurm_status = self.check_slurm_status(str(current_slurm_id))
             if slurm_status != current_status:
-                job.status = slurm_status
-                job.save()
+                self.status = slurm_status
+                if slurm_status in [JobStatus.UNFINISHED, JobStatus.FAILED]:
+                    print(f"Job {self.job_id:08x} is {slurm_status} in slurm system, we updated their status in the database, run again to re-submit them.")
+                self.save()
         # if the job is unfinished, re-submit and update the status accordingly
         if current_status == JobStatus.UNFINISHED:
-            if self.unfinished_times >= job.max_unfinished_times:
-                print(f"Job {job_id} has been unfinished for {self.unfinished_times} times, which exceeds the maximum unfinished times {job.max_unfinished_times}, please check the job manually.")
-                job.status = JobStatus.CHECK_REQUIRED
-                job.save()
+            if self.unfinished_times >= self.max_unfinished_times: #type: ignore
+                print(f"Job {self.job_id:08x} has been unfinished for {self.unfinished_times} times, which exceeds the maximum unfinished times {self.max_unfinished_times}, please check the job manually.")
+                self.status = JobStatus.CHECK_REQUIRED
+                self.save()
                 return
             elif self.resubmit_script_unfinished is not None:
                 self.unfinished_times += 1
                 new_slurm_id = self.resubmit_unfinished_task()
-                job.current_slurm_id = new_slurm_id
+                self.current_slurm_id = new_slurm_id
                 self.status = JobStatus.PENDING
-                job.save()
+                self.save()
             else:
-                print(f"Job {job_id:08x} is unfinished, but no resubmit script is provided, please check the job manually.")
-                job.status = JobStatus.CHECK_REQUIRED
-                job.save()
+                print(f"Job {self.job_id:08x} is unfinished, but no resubmit script is provided, please check the job manually.")
+                self.status = JobStatus.CHECK_REQUIRED
+                self.save()
                 return
         # if the job is failed, re-submit and update the status accordingly
         if current_status == JobStatus.FAILED:
-            if self.failed_times >= job.max_failed_times:
-                print(f"Job {job_id:08x} has been failed for {self.failed_times} times, which exceeds the maximum failed times {job.max_failed_times}, please check the job manually.")
-                job.status = JobStatus.CHECK_REQUIRED
-                job.save()
+            if self.failed_times >= self.max_failed_times: #type: ignore
+                print(f"Job {self.job_id:08x} has been failed for {self.failed_times} times, which exceeds the maximum failed times {self.max_failed_times}, please check the job manually.")
+                self.status = JobStatus.CHECK_REQUIRED
+                self.save()
                 return
             elif self.resubmit_script_failed is not None:
                 self.failed_times += 1
                 new_slurm_id = self.resubmit_failed_task()
-                job.current_slurm_id = new_slurm_id
+                self.current_slurm_id = new_slurm_id
                 self.status = JobStatus.PENDING
-                job.save()
+                self.save()
             else:
-                print(f"Job {job_id:08x} is failed, but no resubmit script is provided, please check the job manually.")
-                job.status = JobStatus.CHECK_REQUIRED
-                job.save()
+                print(f"Job {self.job_id:08x} is failed, but no resubmit script is provided, please check the job manually.")
+                self.status = JobStatus.CHECK_REQUIRED
+                self.save()
                 return
     def check(self) -> None:
         # check this job's status, and if it is CHECK_REQUIRED, print the path of slurm output and error files and log files for manual checking.
@@ -399,8 +481,120 @@ def update_slurm_jobs():
 
 @register_command(command_name="manage-slurm-jobs", help_msg="Check the status of all slurm jobs in the database, and edit them in vim.")
 def manage_slurm_jobs():
+    DEFAULT_PARAMS: InputAcceptable = {
+        "configure_set_name": {
+            "default": None,
+            "help": "the name of the slurm configuration set to use for this job",
+            "type": str,
+            "short": "s",
+        },
+        "edit": {
+            "default": False,
+            "help": "whether to edit the jobs in vim, if False, show the jobs in less",
+            "type": bool,
+            "short": "m",
+        },
+    }
     assert is_sql_supported(), "This platform does not support SQLite, please check the SQL support first."
-    update_slurm_jobs()
+    
+    input_loader = InputLoader(DEFAULT_PARAMS)
+    input_params = input_loader.load()
+    configure_set_name = input_params["configure_set_name"]
+    edit = input_params["edit"]
+    
+    connect_database()
+    
+    if configure_set_name is not None:
+        configure_set = ConfigurationSet.get(ConfigurationSet.config_name == configure_set_name)
+    else:
+        configure_set = ConfigurationSet.select().first()
+    
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as tmp:
+        tmp.write(b"# Please check the status of the slurm jobs in the following format:\n")
+        tmp.write(b"# job_id: the id of the job in the database\n")
+        tmp.write(b"# current_slurm_id: the current slurm id of the job\n")
+        tmp.write(b"# job_dir: the directory where the job is running\n")
+        tmp.write(b"# status: the status of the job (pending, running, finished, unfinished, failed, check_required)\n")
+        tmp.write(b"# script_for_failed: the script to re-submit the job if it is failed\n")
+        tmp.write(b"# script_for_unfinished: the script to re-submit the job if it is unfinished\n")
+        tmp.write(b"# You can edit any information of the job, or remove them\n")
+        tmp.write(b"# If you want to remove them, add a 'rm' before the job_id, for example: 'rm 1:'\n")
+        
+        jobs = configure_set.jobs
+        for job in jobs:
+            tmp.write(f"{job.job_id:08x}: {job.current_slurm_id}, {job.job_dir}, {job.status},{job.resubmit_script_failed},{job.resubmit_script_unfinished}\n".encode('utf-8'))
+        
+        tmp.flush()
+        tmp_path = tmp.name
+    
+    if edit:
+        old_time = os.path.getmtime(tmp_path)
+        subprocess.run(['vim', tmp_path])
+        new_time = os.path.getmtime(tmp_path)
+        
+        if new_time == old_time:
+            print("No changes made to the job status, exiting.")
+            os.remove(tmp_path)
+            return
+        
+        with open(tmp_path, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                line = line.strip()
+                if line.startswith("#") or line == "":
+                    continue
+                if line.startswith("rm"):
+                    job_id_str = line.split()[1].strip(':')
+                    job_id = int(job_id_str, 16)
+                    job = SlurmJob.get(SlurmJob.job_id == job_id)
+                    job.delete_instance()
+                else:
+                    job_id, rest = line.split(":", 1)
+                    job_id = int(job_id.strip(), 16)
+                    current_slurm_id, job_dir, status, resubmit_script_failed, resubmit_script_unfinished = rest.split(",", 4)
+                    current_slurm_id = current_slurm_id.strip()
+                    job_dir = job_dir.strip()
+                    status = status.strip()
+                    resubmit_script_failed = resubmit_script_failed.strip()
+                    resubmit_script_unfinished = resubmit_script_unfinished.strip()
+                    
+                    if configure_set.jobs.where(SlurmJob.job_id == job_id).exists():
+                        job = SlurmJob.get(SlurmJob.job_id == job_id)
+                        job.current_slurm_id = current_slurm_id
+                        job.job_dir = job_dir
+                        job.status = status
+                        job.resubmit_script_failed = resubmit_script_failed
+                        job.resubmit_script_unfinished = resubmit_script_unfinished
+                        job.save()
+                    else:
+                        job = SlurmJob.create(
+                            job_id=job_id,
+                            current_slurm_id=current_slurm_id,
+                            job_dir=job_dir,
+                            status=status,
+                            resubmit_script_failed=resubmit_script_failed,
+                            resubmit_script_unfinished=resubmit_script_unfinished,
+                            configure_set=configure_set
+                        )
+    else:
+        subprocess.run(['less', tmp_path])
+    
+    os.remove(tmp_path)
+
+#@register_command(command_name="manage-slurm-jobs", help_msg="Check the status of all slurm jobs in the database, and edit them in vim.")
+def _ref_manage_slurm_jobs():
+    assert is_sql_supported(), "This platform does not support SQLite, please check the SQL support first."
+    # update_slurm_jobs()
+    connect_database()
+    if len(sys.argv) >= 2:
+        configure_name = sys.argv[1]
+    else:
+        configure_name = None
+    if configure_name is not None:
+        configure_set = ConfigurationSet.get(ConfigurationSet.config_name == configure_name)
+    else:
+        configure_set = ConfigurationSet.select().first()
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".tmp") as tmp:
         tmp.write(b"# Please check the status of the slurm jobs in the following format:\n")
@@ -412,7 +606,7 @@ def manage_slurm_jobs():
         tmp.write(b"# script_for_unfinished: the script to re-submit the job if it is unfinished\n")
         tmp.write(b"# You can edit any information of the job, or remove them\n")
         tmp.write(b"# If you want to remove them, add a 'rm' before the job_id, for example: 'rm 1:'\n")
-        jobs = SlurmJob.select()
+        jobs = configure_set.jobs
         for job in jobs:
             tmp.write(f"{job.job_id:08x}: {job.current_slurm_id}, {job.job_dir}, {job.status},{job.resubmit_script_failed},{job.resubmit_script_unfinished}\n".encode('utf-8'))
         tmp.flush()
@@ -443,13 +637,25 @@ def manage_slurm_jobs():
                     status = status.strip()
                     resubmit_script_failed = resubmit_script_failed.strip()
                     resubmit_script_unfinished = resubmit_script_unfinished.strip()
-                    job = SlurmJob.get(SlurmJob.job_id == job_id)
-                    job.current_slurm_id = current_slurm_id
-                    job.job_dir = job_dir
-                    job.status = status
-                    job.resubmit_script_failed = resubmit_script_failed
-                    job.resubmit_script_unfinished = resubmit_script_unfinished
-                    job.save()
+                    # check if it is update or create, if the job_id exists in the database, update it, otherwise create a new job with the provided information.
+                    if configure_set.jobs.where(SlurmJob.job_id == job_id).exists():
+                        job = SlurmJob.get(SlurmJob.job_id == job_id)
+                        job.current_slurm_id = current_slurm_id
+                        job.job_dir = job_dir
+                        job.status = status
+                        job.resubmit_script_failed = resubmit_script_failed
+                        job.resubmit_script_unfinished = resubmit_script_unfinished
+                        job.save()
+                    else:
+                        job = SlurmJob.create(
+                            job_id=job_id,
+                            current_slurm_id=current_slurm_id,
+                            job_dir=job_dir,
+                            status=status,
+                            resubmit_script_failed=resubmit_script_failed,
+                            resubmit_script_unfinished=resubmit_script_unfinished,
+                            configure_set=configure_set
+                        )
         
 @register_command(command_name="trace-slurm-job", help_msg="Register a new slurm job in the database, and print the wrappered script to submit the job with the trap to manage the finished and failed flag files.")
 def trace_slurm_job():
@@ -577,3 +783,6 @@ if [ $? -eq 0 ]; then echo 1 > {finished_flag_file}; echo 0 > {error_flag_file};
 else echo 0 > {finished_flag_file}; echo -1 > {error_flag_file}; fi
     """
     print(wrapper_script)
+
+if __name__ == "__main__":
+    is_sql_supported()
