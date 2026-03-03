@@ -223,7 +223,7 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
     else:
         return T_array, t_total_array, M_loss_array, C_array
 
-if __name__ == "__main__":
+def main():
     """
     Example usage and plot the parameter test.
     It will be a 2×2 subplot.
@@ -336,4 +336,6 @@ if __name__ == "__main__":
     #plt.show()
     plt.savefig('magma_ocean_devolatilization_parameter_study.pdf')
     
-    
+if __name__ == "__main__":
+    main()
+    #print(vapour_pressure(5000))
