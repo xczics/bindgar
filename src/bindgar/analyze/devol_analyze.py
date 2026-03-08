@@ -124,7 +124,7 @@ def draw_melt_mass(
         m_list = []
         f_list = []
         for sim_index, simulation in enumerate(simulations):
-            print("="*20+simulation+"="*20)
+            #print("="*20+simulation+"="*20)
             simobj = SimulationOutput(simulation,gass_giants_indexes=gass_giant_indexes)
             sim_label = simobj.get_input_params("Output name")
             if sim_index == 0 and group_label is None:
@@ -133,9 +133,9 @@ def draw_melt_mass(
             final_particles = simobj.survivals_without_gas_giants_data
             for particle in final_particles:
                 m_list.append(particle["m"])
-                print(f"Particle {particle['i']}: mass = {particle['m']*M_SUN/M_EARTH:.6e} M_earth, melt fraction = {evolutionobj.get_particle_melt_fractions(particle['i']):.6e}")
+                #print(f"Particle {particle['i']}: mass = {particle['m']*M_SUN/M_EARTH:.6e} M_earth, melt fraction = {evolutionobj.get_particle_melt_fractions(particle['i']):.6e}")
                 f_list.append(evolutionobj.get_particle_melt_fractions(particle["i"]))
-        print(f_list)
+        #print(f_list)
         m_array = np.array(m_list) * M_SUN / M_EARTH
         f_array = np.array(f_list)
         ax.scatter(m_array, f_array, label=group_label, alpha=0.7, color=color_map[group_index])

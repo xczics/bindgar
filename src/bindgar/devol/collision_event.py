@@ -14,6 +14,7 @@ from ..output import SimulationOutput
 from ..common import statstic_time
 import os
 import pickle
+import atexit
 
 class CollisionEvent():
     """
@@ -201,6 +202,7 @@ class CollisionEvent():
 
 class SimulationMeltsEvolution():
     def __init__(self, simulation: SimulationOutput, **kwargs) -> None:
+        atexit.register(self._final_save)
         self._event_args = kwargs
         self.simulation = simulation
         self.simulation.built_history()
@@ -214,6 +216,7 @@ class SimulationMeltsEvolution():
         evol_cache_file_name = ".meltevol" + self.simulation.get_input_params("Output name").replace(" ","-") + ".pkl"
         self._cache_melt_frac_file_path = os.path.join(original_dir, melt_cache_file_name)
         self._cache_evol_file_path = os.path.join(original_dir, evol_cache_file_name)
+        #！！！这里有个bug,以后再修：需要检查自从上次cache之后，n-body模拟结果是否更新了，如果更新了，就删除之前的cache文件。
         self._new_melt_frac_since_last_cache = 0
         if os.path.exists(self._cache_evol_file_path):
             self._melt_evolution_particles = pickle.load(open(self._cache_evol_file_path, "rb"))
@@ -351,6 +354,8 @@ class SimulationMeltsEvolution():
             try:
                 melt_fraction = event.melt_fraction
             except:
+                print("Something wrong when calculating the melt fraction for event index", i)
+                print(f"M_total: {event.total_mass_in_earth:.3f} M_earth, gamma: {event.gamma:.3f}, vel_escape_ratio: {event.vel_escape_ratio:.3f}, impact_angle: {event.impact_angle:.1f} degree.")
                 self._unexpected_melt_event.add(i)
                 return 0.0
             self._melt_fractions_event[i] = melt_fraction
@@ -398,7 +403,7 @@ class SimulationMeltsEvolution():
                 self._melt_evolution_particles[i][index_history,2] = origin_mass
             self._melt_evolution_particles[i][index_history+1,2] = massi + massj
             inherited_melt = (melti * massi + meltj * massj) / (massi + massj)
-            print(i, new_frac, inherited_melt)
+            #print(i, new_frac, inherited_melt)
             initial_melt_frac = float(inherited_melt + new_frac)
             self._melt_evolution_particles[i][index_history+1,0] = initial_melt_frac
             self._melt_evolution_particles[i][index_history+1,1] = time
@@ -418,12 +423,18 @@ class SimulationMeltsEvolution():
             self.get_particle_melt_fractions(i)
             return self._melt_evolution_particles[i]
     # 在程序退出，或对象被GC时，保存缓存np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
-    def __del__(self):
+    # 但需要注意，程序退出时，numpy可能已经被卸载了。需要设置这个操作最先执行。
+    def _final_save(self):
         if self._melt_fractions_event is not None and self._new_melt_frac_since_last_cache > 0:
             np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
+            self._new_melt_frac_since_last_cache
         if hasattr(self, "_melt_evolution_particles") and not self._evol_cache_updated:
             with open(self._cache_evol_file_path, "wb") as f:
                 pickle.dump(self._melt_evolution_particles, f)
+            self._evol_cache_updated = True
+    def __del__(self):
+        if self._new_melt_frac_since_last_cache > 0 or not self._evol_cache_updated:
+            self._final_save()
     
 class CollisionResult():
     def __init__(self, **kwargs) -> None:
@@ -618,7 +629,7 @@ def boundary_magma_model(draw_directly=False) -> Any:
             M_array_plot = M_array.copy() / M_EARTH * M_Mars
         M_grid, v_grid = np.meshgrid(M_array_plot, v_array, indexing='ij')
         plot_colors = np.transpose(colors_2d, (1, 0, 2))
-        ax_2d.pcolormesh(M_array, v_array, plot_colors, shading='nearest')
+        ax_2d.pcolormesh(M_array_plot, v_array, plot_colors, shading='nearest')
         counter_line_color_map = ['black', 'purple', 'orange']
         thetas = [0, 60, 90]
         for theta_index in range(3):
@@ -635,8 +646,12 @@ def boundary_magma_model(draw_directly=False) -> Any:
             if gamma_filter(input[1]):
                 inputs_2d.append([input[0], input[3]])
         inputs_2d = np.array(inputs_2d)
+        if Need_convert_to_earth:
+            inputs_2d[:,0] = inputs_2d[:,0] / M_EARTH * M_Mars
         if inputs_2d.shape[0] > 0:
-            ax_2d.scatter(inputs_2d[:,0], inputs_2d[:,1], color='red', marker='o', label='Nakajima SPH inputs', s=50)
+            ax_2d.scatter(inputs_2d[:,0], inputs_2d[:,1], color='red', 
+                          marker='o', label='Nakajima SPH inputs', s=50,
+                          zorder=10) # 设置总在最顶层
         if not Need_convert_to_earth:
             ax_2d.set_xlabel(r'Total Mass ($M_{Mars}$)')
         else:

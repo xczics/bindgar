@@ -261,7 +261,13 @@ def draw_speed_mass_distribution(ax: Axes,
             ax.scatter(m_earth, relvs, marker=shape_map[index], color=colors, s=10 * ( average_total_mass / ref_total_mass ),
                    alpha=0.9, label=label[index])
         else:
-            ax.scatter(m_earth, relvs, marker=shape_map[index], color=color_map[index],s=10 * ( average_total_mass / ref_total_mass ),
+            if not param["nb_label"]:
+                color_this_group = color_map[index]
+            else:
+                # 增加图标颜色的透明度，避免遮盖背景。注意，color_map[index]目前是字符串
+                color_this_group = color_map[index]                
+                color_this_group = plt.colors.to_rgba(color_this_group, alpha=0.5)  # type: ignore
+            ax.scatter(m_earth, relvs, marker=shape_map[index], color=color_this_group,s=10 * ( average_total_mass / ref_total_mass ),
                    alpha=0.9, label=label[index])
     if param["m_log_scale"]:
         ax.set_xscale("log")
