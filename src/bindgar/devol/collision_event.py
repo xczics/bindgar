@@ -2,8 +2,9 @@
 In this module, we will handle the devoltilization during a single collision event.
 """
 
-from typing import Dict, Optional,List, Tuple, Self, Set
+from typing import Dict, Optional,List, Tuple, Self, Set, Callable, Any
 import numpy as np
+from scipy.spatial import Delaunay
 from ..physics import convert_factor_from_auptu_to_kmps, AU2M, M_EARTH, M_SUN, G, M_Mars, impact_angle_radians
 import math
 from functools import cached_property, lru_cache
@@ -498,7 +499,225 @@ class CollisionResult():
         C_p = 1200
         T_0 = 1200
         return self.av_du_gain * 1e5 / C_p + T_0
-    
+
+@lru_cache(maxsize=2)
+def boundary_magma_model(draw_directly=False) -> Any:
+    """
+    Parameter boundary test for `CollisionResult`.
+    Draw a area where the nakajima's area they covered ("Interpolation area"),
+      and the area their code can run ("Extropolation area"), 
+      and other area should labeld as "Out of range".
+    The x-axis is the total mass (from 0.03 - 40 M_mars, in log scale), 
+      the y-axis is the velocity in unit of escape velocity (0.1 - 9, log scale),
+      and the z-axis is the gamma parameter, from 0.0 to 0.5 (linear scale).
+    The total plot should be a 3 column and 6 rows subplot.
+      In each column, the first subplot is the 3D plot, the second to sixth subplot 
+      are the 2D plot of x and y with z= 0.01, 0.03 ~ 0.05, 0.09 ~ 0.11, 0.2 ~ 0.301, and 0.5.
+      In the first column, the impact angle is fixed to 0 degree, 
+      in the second column the impact angle is fixed to 60 degree, 
+      and in the third column the impact angle is fixed to 90 degree.
+    The interpolation area should read from the csv file, the csv file located at "./nakajima/sph_input.txt", the root dir is the same as this file.
+    Try to run their model, and get their melt fraction. If the model cannot run, label as "Out of range", other wise, label as "Extrapolation area".
+      And also label the area where melt fraction lager than 0.1.
+    The calculated and test result should be cached in the disk.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+    MIN_M = 0.03
+    MAX_M = 40
+    MIN_V = 0.3
+    MAX_V = 9
+    M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 40)
+    v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 30)
+    gamma_array = np.array([0.01, 0.02, 0.03, 0.04, 0.05, 0.08, 0.1, 0.2, 0.3, 0.4, 0.5])
+    from ..datahandle import SimulationOutputData
+    csv_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nakajima", "sph_input.txt")
+    fmt = "<< Model:s,ID,MT,gamma,theta,v_imp/v_esc,v_esc(m/s) >>"
+    data = SimulationOutputData(csv_file_path, format_spec=fmt, skip_header=True, split=",")
+    sph_inputs = []
+    with data:
+        for row in data:
+            sph_inputs.append([
+                row["MT"],
+                row["gamma"],
+                row["theta"],
+                row["v_imp/v_esc"],
+            ])
+    sph_inputs = np.array(sph_inputs)
+    def test_it():
+        test_results = []
+        for theta in [0, 60, 90]:
+            print(f"Testing impact angle {theta} degree...")
+            melt_fraction_array = np.zeros((len(gamma_array), len(M_array), len(v_array)))
+            intro_area_array = np.zeros((len(gamma_array), len(M_array), len(v_array)), dtype=bool)
+            canrun_area_array = np.zeros((len(gamma_array), len(M_array), len(v_array)), dtype=bool)
+            related_inputs = sph_inputs[sph_inputs[:,2] == theta]
+            Delaunay_area = Delaunay(related_inputs[:,[0,1,3]])
+            for i, gamma in enumerate(gamma_array):
+                for j, M in enumerate(M_array):
+                    for k, v in enumerate(v_array):
+                        print(f"...Testing point M={M:.3f} M_mars, gamma={gamma:.3f}, v={v:.3f} v_esc.")
+                        collision_result = CollisionResult(Mtotal=M, gamma=gamma, vel=v, impact_angle=theta)
+                        try:
+                            melt_fraction = collision_result.melt_fraction
+                            melt_fraction_array[i,j,k] = melt_fraction
+                            canrun_area_array[i,j,k] = True
+                        except:
+                            canrun_area_array[i,j,k] = False
+                            pass
+                        if canrun_area_array[i,j,k]:
+                            # check if the point is in the D3_Hull area.
+                            if Delaunay_area.find_simplex([M, gamma, v]) >= 0:
+                                intro_area_array[i,j,k] = True
+                            else:
+                                intro_area_array[i,j,k] = False
+            test_results.append({
+            "melt_fraction_array": melt_fraction_array,
+            "intro_area_array": intro_area_array,
+            "canrun_area_array": canrun_area_array,
+            })
+        dir_this_file = os.path.dirname(os.path.abspath(__file__))
+        cache_file_name = os.path.join(dir_this_file, "magma_model_boundary_test_cache.npy")
+        np.save(cache_file_name, test_results, allow_pickle=True)
+        return test_results
+    dir_this_file = os.path.dirname(os.path.abspath(__file__))
+    cache_file_name = os.path.join(dir_this_file, "magma_model_boundary_test_cache.npy")
+    if os.path.exists(cache_file_name):
+        test_results = np.load(cache_file_name, allow_pickle=True)
+    else:
+        test_results = test_it()
+    intro_area_array = test_results[0]["intro_area_array"]
+    canrun_area_array = test_results[0]["canrun_area_array"]  
+    def back_ground_it(
+            ax_2d: Axes,
+            gamma_draw: float = 0.1,
+            gamma_filter: Callable[[float], bool] = lambda gamma: 0.09 <= gamma <= 0.11,
+            Mass_unit: str = "M_Mars",
+            register_contour: bool = False,
+    ):
+        if Mass_unit not in ["M_Mars", "M_Earth"]:
+            raise ValueError(f"Mass_unit should be either 'M_Mars' or 'M_Earth', but got {Mass_unit}.")
+        Need_convert_to_earth = False
+        if Mass_unit == "M_Earth":
+            Need_convert_to_earth = True
+        gamma_index = np.where(gamma_array == gamma_draw)[0][0]
+        intro_area_2d = intro_area_array[gamma_index,:,:]
+        canrun_area_2d = canrun_area_array[gamma_index,:,:]
+        colors_2d = np.zeros(intro_area_2d.shape + (4,))
+        colors_2d[~canrun_area_2d] = [0.5, 0.5, 0.5, 0.3]
+        # 把canrun_area_2d中为false的地方打印到终端，看看他们的分布.
+        if draw_directly:
+            for i in range(canrun_area_2d.shape[0]):
+                for j in range(canrun_area_2d.shape[1]):
+                    if not canrun_area_2d[i,j]:
+                        print(f"Gamma={gamma_draw:.3f}, M={M_array[i]:.3f}, v={v_array[j]:.3f} cannot run.")
+        colors_2d[intro_area_2d] = [1.0, 0.0, 0.0, 0.3]
+        colors_2d[canrun_area_2d & ~intro_area_2d] = [0.0, 0.0, 1.0, 0.3]
+        M_array_plot = M_array
+        if Need_convert_to_earth:
+            M_array_plot = M_array.copy() / M_EARTH * M_Mars
+        M_grid, v_grid = np.meshgrid(M_array_plot, v_array, indexing='ij')
+        plot_colors = np.transpose(colors_2d, (1, 0, 2))
+        ax_2d.pcolormesh(M_array, v_array, plot_colors, shading='nearest')
+        counter_line_color_map = ['black', 'purple', 'orange']
+        thetas = [0, 60, 90]
+        for theta_index in range(3):
+            melt_fraction_2d = test_results[theta_index]["melt_fraction_array"][gamma_index,:,:]
+            contour = ax_2d.contour(M_grid, v_grid, melt_fraction_2d, levels=[0.05], colors=counter_line_color_map[theta_index], linewidths=1)
+                # register the contour lines to the legend
+            if register_contour:
+                ax_2d.plot([], [], color=counter_line_color_map[theta_index], label=f'5% melts for {thetas[theta_index]}°')
+        ax_2d.set_xscale('log')
+        ax_2d.set_yscale('log')
+        inputs_with_same_theta = sph_inputs[sph_inputs[:,2] == 60.0]
+        inputs_2d = []
+        for input in inputs_with_same_theta:
+            if gamma_filter(input[1]):
+                inputs_2d.append([input[0], input[3]])
+        inputs_2d = np.array(inputs_2d)
+        if inputs_2d.shape[0] > 0:
+            ax_2d.scatter(inputs_2d[:,0], inputs_2d[:,1], color='red', marker='o', label='Nakajima SPH inputs', s=50)
+        if not Need_convert_to_earth:
+            ax_2d.set_xlabel(r'Total Mass ($M_{Mars}$)')
+        else:
+            ax_2d.set_xlabel(r'Total Mass ($M_{Earth}$)')
+        ax_2d.set_ylabel(r'Velocity (v/$v_{esc}$)')
+        
+    def draw_it():
+        # init page and subplots
+        SUB_PLOT_ROWS = 3
+        SUB_PLOT_COLS = 2
+        WIDTH_SUBPLOT = 4
+        HEIGHT_SUBPLOT = 4
+        fig = plt.figure(figsize=(WIDTH_SUBPLOT*SUB_PLOT_COLS, HEIGHT_SUBPLOT*SUB_PLOT_ROWS))
+        fig_grid = fig.add_gridspec(SUB_PLOT_ROWS, SUB_PLOT_COLS, wspace=0.3, hspace=0.3)
+        SUB_PLOT_GAMMAS = [0.01, 0.03, 0.1, 0.2, 0.5]
+        gamma_filters = [
+            lambda _: False,
+            lambda gamma: 0.02 <= gamma <= 0.05,
+            lambda gamma: 0.09 <= gamma <= 0.11,
+            lambda gamma: 0.2 <= gamma <= 0.302,
+            lambda gamma: gamma >= 0.45,
+        ]
+        # 使用 add_axes 手动创建3D轴, 第一列，第一行
+        left = 0.05
+        bottom = 0.7
+        width = 0.4
+        height = 0.25
+        ax_3d = fig.add_axes([left, bottom, width, height], projection='3d') #type: ignore
+        # 填充内插区域维红色，外插但可运行区域为蓝色，其他区域为灰色。高亮 melt fraction 大于 0.1 的区域。并投上输入散点。
+        colors = np.zeros(intro_area_array.shape + (4,))
+        colors[~canrun_area_array] = [0.5, 0.5, 0.5, 0.0]
+        colors[intro_area_array] = [0.8, 0.0, 0.0, 0.8]
+        colors[canrun_area_array & ~intro_area_array] = [0.0, 0.0, 1.0, 0.0]
+        gamma_grid, M_grid, v_grid = np.meshgrid(gamma_array, M_array, v_array)
+        log_M_grid = np.log10(M_grid)
+        log_v_grid = np.log10(v_grid)
+        ax_3d.scatter(log_M_grid.flatten(), log_v_grid.flatten(), gamma_grid.flatten(), 
+                  color=colors.reshape(-1,4), marker='x', s=1) # type: ignore
+        log_sph_inputs_x = np.log10(sph_inputs[:,0])
+        log_sph_inputs_y = np.log10(sph_inputs[:,3])
+        ax_3d.scatter(log_sph_inputs_x, log_sph_inputs_y, sph_inputs[:,1], color='red', marker='o', label='Nakajima SPH inputs', s=10) # type: ignore
+        # 添加y=0 平面 和z=0.1 平面
+        # y=0 平面
+        ax_3d.plot_surface(np.log10(np.array([[MIN_M,MAX_M], [MIN_M, MAX_M]])),#type: ignore
+                               np.log10(np.array([[1.0, 1.0], [1.0, 1.0]])),
+                               np.array([[0.0,0.0], [0.5, 0.5]]), 
+                                color='grey', alpha=0.25)
+        # z=0.1 平面
+        ax_3d.plot_surface(np.log10(np.array([[MIN_M, MAX_M], [MIN_M, MAX_M]])),#type: ignore
+                               np.log10(np.array([[MIN_V, MIN_V], [MAX_V, MAX_V]])),
+                                 np.array([[0.1,0.1], [0.1, 0.1]]), 
+                                  color='grey', alpha=0.25)
+            
+        ax_3d.set_xlim(np.log10(MIN_M), np.log10(MAX_M))
+        ax_3d.set_ylim(np.log10(MIN_V), np.log10(MAX_V))
+        ax_3d.set_zlim(0.0, 0.5) #type: ignore
+        ax_3d.set_xlabel(r'Total Mass (log10($M_{Mars}$))')
+        ax_3d.set_ylabel(r'Velocity (log10(v/$v_{esc}$))')
+        ax_3d.set_zlabel('Gamma') #type: ignore
+        ax_3d.legend()
+        # 画二维图，x轴是总质量，y轴是速度，颜色是 melt fraction。每个子图对应一个 gamma 值。从上到下，从左到右
+        for sub_index in range(5):
+            row = (sub_index + 1) % SUB_PLOT_ROWS
+            col = (sub_index + 1) // SUB_PLOT_ROWS
+            ax_2d = fig.add_subplot(fig_grid[row, col])
+            ax_2d.set_xlim(MIN_M, MAX_M)
+            ax_2d.set_ylim(0.7, MAX_V)
+            gamma = SUB_PLOT_GAMMAS[sub_index]
+            ax_2d.set_title(f'Gamma = {gamma:.2f}')
+            back_ground_it(ax_2d, gamma_draw=gamma, gamma_filter=gamma_filters[sub_index], register_contour=sub_index==0)
+            if sub_index == 0:
+                ax_2d.legend()
+        # 调整整体标题和布局
+        # save the figure
+        plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "magma_model_boundary_test.pdf"))
+
+    if draw_directly:
+        draw_it()
+    else:
+        return back_ground_it
+
 def test_magma_model() -> None:
     """
     Parameter test for `CollisionResult`, and plot them.
@@ -677,5 +896,6 @@ def main() -> None:
     print(T, t_total/(3600*24*365), M_loss_total, C)
 
 if __name__ == "__main__":
-    main()
+    # main()
     # test_magma_model()
+    boundary_magma_model(draw_directly=True)

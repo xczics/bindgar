@@ -108,6 +108,16 @@ COLLISION_MASS_DISTRIBUTION_PARAMS: InputAcceptable = {
             "help": "color map for different simulation groups, if not provided, default colors will be generate through the bind_color function based on the yita and impact angle of each collision",
             "type": list,
     },
+    "need_nb": {
+        "default": False,
+        "help": "whether to add a background to show the parameter area where the nakajima's scaling law is intropolated or extropolated.",
+        "type": bool,
+    },
+    "nb_label": {
+        "default": False,
+        "help": "whether to add label during plotting the nakajima's scaling law background.",
+        "type": bool,
+    },
     "figure_title":{
         "default": "Collision Speed-Mass Distribution",
         "help": "title for the figure",
@@ -178,6 +188,15 @@ def draw_speed_mass_distribution(ax: Axes,
     label = param["label"] if param["label"] is not None else []
     use_auto_color = param["color_map"] is None
     color_map = CyclicList(['C0'])
+    if param["need_nb"]:
+        from ..devol.collision_event import boundary_magma_model
+        background_nb = boundary_magma_model()
+        # 断言background_nb是Callable的
+        assert callable(background_nb), "Something must be wrong"
+        if param["nb_label"]:
+            background_nb(ax, Mass_unit="M_Earth", register_contour=True)
+        else:
+            background_nb(ax, Mass_unit="M_Earth", register_contour=False)
     ref_total_mass = None
     if not use_auto_color:
         color_map = CyclicList(param["color_map"])
