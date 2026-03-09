@@ -158,10 +158,15 @@ def melt_analyze():
             "type": str,
             "short": "o",
         },
+        "figure_size" : {
+            "default": (12,6),
+            "help": "figure size in inches",
+            "type": tuple,
+        }
     }
     input_params = InputLoader(DEFAULT_PARAMS).load()
     figure_file = input_params["figure_file"]
-    plt.figure(figsize=(12,6))
+    plt.figure(figsize=input_params["figure_size"])
     ax = plt.gca()
     draw_melt_mass(ax, input_params)
     plt.tight_layout()

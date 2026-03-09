@@ -377,11 +377,16 @@ def main():
             "help": "output figure file name",
             "type": str,
         },
+        "figure_size" : {
+            "default": (12,6),
+            "help": "figure size in inches",
+            "type": tuple,
+        },
         **COLLISION_DRAWER_PARAMS
     }
     input_params = InputLoader(DEFAULT_PARAMS).load()
     figure_file = input_params["figure_file"]
-    plt.figure(figsize=(12,6))
+    plt.figure(figsize=input_params["figure_size"])
     ax = plt.gca()
     draw_collision_speeds(ax, input_params)
     plt.tight_layout()
@@ -395,11 +400,16 @@ def speed_mass_distribution():
             "help": "output figure file name",
             "type": str,
         },
+        "figure_size" : {
+            "default": (8,6),
+            "help": "figure size in inches",
+            "type": tuple,
+        },
         **COLLISION_MASS_DISTRIBUTION_PARAMS
     }
     input_params = InputLoader(DEFAULT_PARAMS).load()
     figure_file = input_params["figure_file"]
-    plt.figure(figsize=(8,6))
+    plt.figure(figsize=input_params["figure_size"])
     ax = plt.gca()
     draw_speed_mass_distribution(ax, input_params)
     plt.tight_layout()
