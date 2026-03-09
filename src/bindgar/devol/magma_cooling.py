@@ -81,6 +81,7 @@ def vapour_pressure(T: float) -> float:
     P_bar = math.exp(lnP)
     return P_bar * 1e5  # Convert bar to Pa
 
+
 def rho_surface_from_T (T: float, M_mol: float) -> float:
     r""" Calculate the surface density of the atmosphere from the temperature.
     rho_s = P_s  / ((R_gas/M_mol) * T)
@@ -277,10 +278,10 @@ def main():
     plt.subplot(2,2,2)
     T_values = np.linspace(1200, 4000, 100)
     param_sets = {
-        "Default": MagmaOceanParameters(),
+        "Default": MagmaOceanParameters(r=1e6),
         "Larger Radius": MagmaOceanParameters(r=2.8e6),
         "Smaller Radius": MagmaOceanParameters(r=9e5),
-        "Smaller Viscosity": MagmaOceanParameters(v=1),
+        "Smaller Viscosity": MagmaOceanParameters(v=1,r=1e6),
     }
     for label, params in param_sets.items():
         T_s_values = [T_s_from_T(T, params) for T in T_values]
@@ -289,6 +290,8 @@ def main():
     plt.xlabel(r'Surface Temperature $T_{surf}$ (K)')
     plt.ylabel('Average Temperature T (K)')
     plt.legend()
+    plt.tight_layout()
+    plt.savefig('magma_ocean_devolatilization_parameter_study.pdf')
 
     # c). The contour plot of the C in a T_int and M_l space.
     plt.subplot(2,2,3)
@@ -335,7 +338,41 @@ def main():
     plt.tight_layout()
     #plt.show()
     plt.savefig('magma_ocean_devolatilization_parameter_study.pdf')
-    
+
+def vi_vapour_pressure():
+    import matplotlib.pyplot as plt
+    import numpy as np
+    T = np.linspace(1200, 4000, 100)
+    P = np.array([vapour_pressure(t) for t in T])
+    plt.plot(T, P/1e5)
+    plt.yscale('log')
+    plt.xlabel('Temperature (K)')
+    plt.ylabel('Vapour Pressure (bar)')
+    plt.savefig('vapour_pressure.pdf')
+
+def vi_M_critical():
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from ..physics import M_EARTH
+    T = np.linspace(1200, 4000, 100)
+    parameter_sets = {
+        "default": MagmaOceanParameters(),
+        "more compressed": MagmaOceanParameters(rho_B=5000),
+        "less compressed": MagmaOceanParameters(rho_B=2000),
+        "lighter atmosphere": MagmaOceanParameters(M_mol=0.004),
+    }
+    for label, params in parameter_sets.items():
+        M_critical_values = np.array([params.M_critical(t) for t in T])
+        plt.plot(M_critical_values/M_EARTH, T, label=label)
+    plt.ylabel('Temperature (K)')
+    plt.xlabel(r'Critical Mass ($M_{earth}$)')
+    plt.xscale('log')
+    # legend at left-top corner
+    plt.legend(loc='upper left')
+    plt.savefig('M_critical.pdf')
+
 if __name__ == "__main__":
     main()
     #print(vapour_pressure(5000))
+    #vi_vapour_pressure()
+    #vi_M_critical()

@@ -52,6 +52,7 @@ from .datahandle import SimulationOutputData, pharse_format, string2data
 from .physics import M_EARTH, M_SUN
 from functools import lru_cache, cached_property
 from .common import statstic_time
+from datetime import datetime
 import math
 
 DEFAULT_Ejction_Format = "<< time index m r x y z vx vy vz Sx Sy Sz case >>"
@@ -131,13 +132,17 @@ class SimulationOutput:
         return SimulationOutputData(init_file, init_format, mode="r", skip_header=False)
     
     @cached_property
+    def name(self) -> str:
+        return self.get_input_params('Output name')
+
+    @cached_property
     def collisions(self, collision_format: str = DEFAULT_Collisions_Format) -> SimulationOutputData:
-        collision_file = path.join(self.path, f"Collisions{self.get_input_params('Output name')}.dat")
+        collision_file = path.join(self.path, f"Collisions{self.name}.dat")
         return SimulationOutputData(collision_file, collision_format, mode="r", skip_header=False)
     
     @cached_property
     def ejections(self, ejection_format: str = DEFAULT_Ejction_Format) -> SimulationOutputData:
-        ejection_file = path.join(self.path, f"Ejections{self.get_input_params('Output name')}.dat")
+        ejection_file = path.join(self.path, f"Ejections{self.name}.dat")
         return SimulationOutputData(ejection_file, ejection_format, mode="r", skip_header=False)
     
     def filter_final_indexes(self, filter_func: Callable) -> List[int]:
@@ -303,6 +308,15 @@ class SimulationOutput:
                 if item["i"] in self._survivals:
                     survivals_data.append(item)
         return survivals_data
+    
+    @cached_property
+    def datetime_finished(self) -> datetime:
+        info_file = path.join(self.path, f"info{self.name}.dat")
+        if not path.exists(info_file):
+            raise ValueError(f"Info file {info_file} not found. Cannot determine simulation finish time.")
+        # 获取文件的最后修改时间
+        timestamp = path.getmtime(info_file)
+        return datetime.fromtimestamp(timestamp)
     
     @property
     def survivals_without_gas_giants_data(self) -> List[Dict[str, Any]]:

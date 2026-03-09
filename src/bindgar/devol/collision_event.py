@@ -12,6 +12,7 @@ from .nakajima.melt_model import Model
 from .magma_cooling import MagmaOceanParameters,devoltilization
 from ..output import SimulationOutput
 from ..common import statstic_time
+from datetime import datetime
 import os
 import pickle
 import atexit
@@ -216,10 +217,21 @@ class SimulationMeltsEvolution():
         evol_cache_file_name = ".meltevol" + self.simulation.get_input_params("Output name").replace(" ","-") + ".pkl"
         self._cache_melt_frac_file_path = os.path.join(original_dir, melt_cache_file_name)
         self._cache_evol_file_path = os.path.join(original_dir, evol_cache_file_name)
-        #！！！这里有个bug,以后再修：需要检查自从上次cache之后，n-body模拟结果是否更新了，如果更新了，就删除之前的cache文件。
+        sim_finish_time = self.simulation.datetime_finished
         self._new_melt_frac_since_last_cache = 0
+        if os.path.exists(self._cache_melt_frac_file_path):
+            cache_melt_frac_time = datetime.fromtimestamp(os.path.getmtime(self._cache_melt_frac_file_path))
+            if cache_melt_frac_time < sim_finish_time:
+                print("The melt fraction cache file is outdated. It will be updated after new melt fractions are calculated.")
+                os.remove(self._cache_melt_frac_file_path)
         if os.path.exists(self._cache_evol_file_path):
-            self._melt_evolution_particles = pickle.load(open(self._cache_evol_file_path, "rb"))
+            cache_evol_time = datetime.fromtimestamp(os.path.getmtime(self._cache_evol_file_path))
+            if cache_evol_time < sim_finish_time:
+                print("The melt evolution cache file is outdated. It will be updated after new melt fractions are calculated.")
+                os.remove(self._cache_evol_file_path)
+                self._melt_evolution_particles = {}
+            else:
+                self._melt_evolution_particles = pickle.load(open(self._cache_evol_file_path, "rb"))
         else:
             self._melt_evolution_particles = {}
         self._evol_cache_updated = True
