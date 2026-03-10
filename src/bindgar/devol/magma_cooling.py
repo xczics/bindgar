@@ -1,6 +1,7 @@
 from typing import Optional, List, overload, Tuple, Final
 from dataclasses import dataclass
 import math
+import numpy as np
 from ..physics import Stefan_Boltzmann, G, R_gas
 
 @dataclass(kw_only=True)
@@ -16,6 +17,7 @@ class MagmaOceanParameters:
     r: float = 1.7e6 # Planet Radius, m
     L: float = 5e6 # Latent Heat of vapourization, J kg-1
     M_mol: float = 0.04 # Molar Mass of the Atmosphere, kg mol-1
+    sb_factor: float = 1.0 # Black body radiation factor, dimensionless
     def __post_init__(self):
         if self.g_s is None:
             self.g_s = (4/3) * math.pi * G * self.rho_B * self.r # m s-2
@@ -41,7 +43,7 @@ def T_from_T_s(T_s: float, parameter: MagmaOceanParameters) -> float:
     """
     A = parameter.kapa * parameter.v / (parameter.rho_M * parameter.g_s # type: ignore
                                          * parameter.alpha_V ) 
-    B = 2 * Stefan_Boltzmann / parameter.k
+    B = 2 * parameter.sb_factor * Stefan_Boltzmann / parameter.k
     Result_from_Calogero = T_s * (1 + T_s ** 2 * A ** (1/4) * B ** (3/4))
     return Result_from_Calogero
 
@@ -130,8 +132,8 @@ def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2):
     u_s = surface_outflow_velocity (T, parameter, yita)
     return 2 * math.pi * r ** 2 * rho_s * u_s
 
-def black_body_flux (T_s: float, r: float) -> float:
-    return Stefan_Boltzmann * T_s ** 4 * (4 * math.pi * r **2)
+def black_body_flux (T_s: float, r: float, sb_factor:float=1.0) -> float:
+    return sb_factor * Stefan_Boltzmann * T_s ** 4 * (4 * math.pi * r **2)
 
 def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2):
     """
@@ -146,7 +148,7 @@ def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2
     Return: float, the cooling rate of the magma ocean.
 
     """
-    F_black = black_body_flux ( T_s = T_s_from_T (T, parameter),r = parameter.r)
+    F_black = black_body_flux ( T_s = T_s_from_T (T, parameter),r = parameter.r, sb_factor=parameter.sb_factor)
     Heat_capacity = M_l * parameter.C_p
     GM = G * parameter.M_tot
     if parameter.M_tot > parameter.M_critical(T):
@@ -234,7 +236,6 @@ def main():
     d). The contour plot of the C in a T_int and r space.
     """
     import matplotlib.pyplot as plt
-    import numpy as np
 
     # a). The cooling process with different T_init (= 1800, 2000, 3000K). x is the time, y_left is the T evolution, y_right is the C evolution.
     T_inits = [1800, 2000, 3000]
@@ -341,7 +342,6 @@ def main():
 
 def vi_vapour_pressure():
     import matplotlib.pyplot as plt
-    import numpy as np
     T = np.linspace(1200, 4000, 100)
     P = np.array([vapour_pressure(t) for t in T])
     plt.plot(T, P/1e5)
@@ -352,7 +352,6 @@ def vi_vapour_pressure():
 
 def vi_M_critical():
     import matplotlib.pyplot as plt
-    import numpy as np
     from ..physics import M_EARTH
     T = np.linspace(1200, 4000, 100)
     parameter_sets = {
@@ -371,8 +370,125 @@ def vi_M_critical():
     plt.legend(loc='upper left')
     plt.savefig('M_critical.pdf')
 
+def format_float(value: float, significant_digits: int = 1, max_decimal_places: int = 2) -> str:
+    """
+    Format a float value to a string. 
+    Example output with significant_digits=1 and max_decimal_places=2:
+    0.1, 0.2, 3, $4 \\times 10^2$, 0.01, $2 \\times 10^{-3}$.
+    And the following str will never output with significant_digits=1 and max_decimal_places=2:
+    - 2.1 # more than 1 significant digit
+    - 0.001 # more than 2 decimal places
+    Args:
+        value (float): The float value to format.
+        significant_digits (int): The number of significant digits to keep.
+        max_decimal_places (int): The maximum number of decimal places to keep.
+    """
+    if value == 0:
+        return '0'
+    elif abs(value) < 10 ** (-max_decimal_places):
+        exponent = math.floor(math.log10(abs(value)))
+        mantissa = value / (10 ** exponent)
+        return f'${mantissa:.{significant_digits}g} \\times 10^{{{exponent}}}$'
+    elif abs(value) >= 10 ** significant_digits:
+        exponent = math.floor(math.log10(abs(value)))
+        mantissa = value / (10 ** exponent)
+        return f'${mantissa:.{significant_digits}g} \\times 10^{{{exponent}}}$'
+    else:
+        return f'{value:.{max_decimal_places}f}'.rstrip('0').rstrip('.')
+
+
+def vi_effect_blackbody():
+    """
+    Test the effect of blackbody by assuming the sb_factor is 1.0, 0.1, 1e-2, and 1e-3.
+    Test the cooling and devol process with T_init = 2500K (in subfig a), and the T-T_s relationship (in subfig b).
+    """
+    import matplotlib.pyplot as plt
+    T_init = 2500
+    sb_factors = [1.0, 0.1, 1e-2, 1e-3]
+    plt.figure(figsize=(12,5))
+    ax1 = plt.subplot(1,2,1)
+    ax1_twin = ax1.twinx()
+    for sb_factor in sb_factors:
+        params = MagmaOceanParameters(sb_factor=sb_factor)
+        T_array, t_total_array, M_loss_array, C_array = devoltilization(T_init, params.M_tot * 0.7 * 0.3, params, final_only=False)
+        ax1.plot(np.array(t_total_array)/365.25/24/3600, T_array, label=r'$\epsilon$='+format_float(sb_factor),alpha=0.8) # type: ignore
+        ax1_twin.plot(np.array(t_total_array)/365.25/24/3600, C_array, '--', label=r'$\epsilon$='+format_float(sb_factor),alpha=0.8) # type: ignore
+    ax1.set_xscale('log')
+    ax1.set_xlabel('Time (year)')
+    ax1.set_ylabel('Temperature (K)')
+    ax1.spines['right'].set_visible(False)
+    ax1.tick_params(right=False)
+    ax1.legend(loc='upper left')
+    ax1.grid(color='white', linestyle='--', linewidth=0.5)
+    ax1_twin.set_ylabel('Concentration Ratio')
+    ax1_twin.spines['right'].set_visible(True)
+    ax1_twin.spines['right'].set_linestyle('--')
+    ax1_twin.legend(loc='upper right')
+    plt.subplot(1,2,2)
+    T_values = np.linspace(1200, 4000, 100)
+    for sb_factor in sb_factors:
+        params = MagmaOceanParameters(sb_factor=sb_factor)
+        T_s_values = [T_s_from_T(T, params) for T in T_values]
+        plt.plot(T_s_values, T_values, label=r'$\epsilon$='+format_float(sb_factor))
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.xlabel(r'Surface Temperature $T_{surf}$ (K)')
+    plt.ylabel('Average Temperature T (K)')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('effect_blackbody.pdf')
+    """
+    More test for r= 1e5, 5e5, 1e6, 1.5e6. 
+    T_init set as 2000K. Each r in a subfig,
+    and only the cooling and devol process. 
+    No T-T_s relationship.
+    """
+    plt.figure(figsize=(18,10))
+    r_values = [1e5, 5e5, 1e6, 1.5e6, 1.5e6, 1.5e6]
+    T_init = 2000
+    for i, r in enumerate(r_values):
+        if i == 4:
+            T_init = 1800
+        if i == 5:
+            T_init = 2500
+        ax = plt.subplot(2,3,i+1)
+        ax_twin = ax.twinx()
+        for j, sb_factor in enumerate(sb_factors):
+            params = MagmaOceanParameters(r=r, sb_factor=sb_factor)
+            T_array, t_total_array, M_loss_array, C_array = devoltilization(T_init, params.M_tot * 0.7 * 0.3, params, final_only=False)
+            ax.plot(np.array(t_total_array)/365.25/24/3600, T_array, label=r'$\epsilon$='+format_float(sb_factor),alpha=0.8) # type: ignore 
+            ax_twin.plot(np.array(t_total_array)/365.25/24/3600, C_array, '--', label=r'$\epsilon$='+format_float(sb_factor),alpha=0.8) # type: ignore
+        ax.set_xscale('log')
+        ax.set_xlabel('Time (year)')
+        ax.set_ylabel('Temperature (K)')
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(right=False)
+        ax.legend(loc='upper left')
+        ax.grid(color='white', linestyle='--', linewidth=0.5)
+        ax_twin.set_ylabel('Concentration Ratio')
+        ax_twin.spines['right'].set_visible(True)
+        ax_twin.spines['right'].set_linestyle('--')
+        ax_twin.legend(loc='upper right')
+        ax.set_title('r = '+format_float(r,significant_digits=2,max_decimal_places=1)+' m')
+    plt.tight_layout()
+    plt.savefig('effect_blackbody_radius.pdf')
+
 if __name__ == "__main__":
-    main()
+    #main()
     #print(vapour_pressure(5000))
     #vi_vapour_pressure()
     #vi_M_critical()
+    #vi_effect_blackbody()
+    # For the convenience of further testing, add a command args to chose which test to run.
+    # And the args can be 'main', 'vapour_pressure', 'M_critical', 'effect_blackbody', but should not
+    # hardcode them, instead, any args with the same function name can be used to run the test.
+    import argparse
+    parser = argparse.ArgumentParser(description='Test the magma ocean devolatilization model.')
+    parser.add_argument('test', type=str, help='The test to run. Can be main, vapour_pressure, M_critical, effect_blackbody, ...')
+    args = parser.parse_args()
+    test_name = args.test
+    # find the function with the same name as test_name, and run it.
+    # if the function does not exist, print an error message.
+    if test_name in globals() and callable(globals()[test_name]):
+        globals()[test_name]()
+    else:
+        print(f'Error: test {test_name} does not exist.') 

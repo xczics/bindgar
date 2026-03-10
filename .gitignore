@@ -11,3 +11,7 @@ src/**/__pycache__/
 src/**/*.egg-info/
 .cloudbase/
 src/bindgar/unitestforindexfile.py
+.DS_Store
+./*.DS_Store
+*/.DS_Store
+*/**/.DS_Store
