@@ -2,7 +2,7 @@
 In this module, we will handle the devoltilization during a single collision event.
 """
 
-from typing import Dict, Optional,List, Tuple, Self, Set, Callable, Any
+from typing import Dict, Optional,List, Tuple, Self, Set, Callable, Any, Literal
 import numpy as np
 from scipy.spatial import Delaunay
 from ..physics import convert_factor_from_auptu_to_kmps, AU2M, M_EARTH, M_SUN, G, M_Mars, impact_angle_radians
@@ -11,71 +11,98 @@ from functools import cached_property, lru_cache
 from .nakajima.melt_model import Model
 from .magma_cooling import MagmaOceanParameters,devoltilization
 from ..output import SimulationOutput
-from ..common import statstic_time
+from ..common import statstic_time, format_float
 from datetime import datetime
 import os
 import pickle
 import atexit
 
+magma_produce_keys = ["entropy0","outputfigurename","use_tex","silent"]
+cooling_keys = ["rho_B","rho_M","kapa","v" ,"k","C_p","alpha_V","g_s","r","L","M_mol"]
+combined_keys = set(magma_produce_keys) | set(cooling_keys)
+
 class CollisionEvent():
-    """
-    A class to handle the single collison data.
-    properties:
-    target: int
-        The index of the target body.
-    impactor: int
-        The index of the impactor body.
-    total_mass: float
-        The total mass of the colliding system in kg.
-    total_mass_in_earth: float
-        The total mass of the colliding system in Earth mass.
-    gamma: float
-        The mass ratio of the impactor to the total mass.
-    delv: np.ndarray
-        The relative velocity vector at impact in m/s [impactor - target].
-    delx: np.ndarray
-        The relative position vector at impact in m [impactor - target].
-    impact_angle_radian: float
-        The impact angle in radian.
-    impact_angle: float
-        The impact angle in degree.
-    rho_B: float
-        The bulk density of the target in kg/m3.
-    radius: float
-        The radius of the merged body after collision in m, will calculate from the total mass and bulk density.
-    escape_velocity: float
-        The escape velocity of the merged body after collision in m/s.
-    vel_real: float
-        The real impact velocity in m/s.
-    vel_escape_ratio: float
-        The ratio of the real impact velocity to the escape velocity.
-    """
-    target: int # The index of the target body.
-    impactor: int # The index of the impactor body.
+    _time: float # The time of the collision event.
+    _target: int # The index of the target body.
+    _impactor: int # The index of the impactor body.
+    _have_time_target_impactor: bool = False # Whether the time, target, and impactor information have been set.
     total_mass_sun: float # The total mass of the colliding system in SUN mass.
     gamma: float # The mass ratio of the impactor to the total mass.
-    delv: np.ndarray # The relative velocity vector at impact in m/s [impactor - target].
-    delx: np.ndarray # The relative position vector at impact in m [impactor - target].
     rho_B: float # The bulk density of the target in kg/m3.
+    impact_angle_radian: float # The impact angle in radian.
+    vel_real: float # The real impact velocity in m/s.
+
+    @property
+    def time(self) -> float:
+        """The time of the collision event."""
+        assert self._have_time_target_impactor
+        return self._time
+    @property
+    def target(self) -> int:
+        """The index of the target body."""
+        assert self._have_time_target_impactor
+        return self._target
+    @property
+    def impactor(self) -> int:
+        """The index of the impactor body."""
+        assert self._have_time_target_impactor
+        return self._impactor
 
     def __init__(self,collision: Dict, **kwargs) -> None:
         collision_handle_kwargs = {}
         if "rho_B" in kwargs:
             collision_handle_kwargs["rho_B"] = kwargs["rho_B"]
-        self._handle_collision_data(collision, **collision_handle_kwargs)
-        magma_produce_keys = ["entropy0","outputfigurename","use_tex","silent"]
+        if "skip_param_convert" in kwargs and kwargs["skip_param_convert"]:
+            pass
+        else:
+            self._record2param(collision, **collision_handle_kwargs)
         self._magma_produce_kwargs = {key: kwargs[key] for key in magma_produce_keys if key in kwargs}
-        cooling_keys = ["rho_B","rho_M","kapa","v" ,"k","C_p","alpha_V","g_s","r","L","M_mol"]
         self._cooling_kwargs = {key: kwargs[key] for key in cooling_keys if key in kwargs}
 
+    @classmethod
+    def from_parameter(cls,
+                       M_total: float, # The total mass in Mars mass.
+                       gamma: float, # The mass ratio of the impactor to the total mass.
+                       impact_angle: float, # The impact angle in degree.
+                       vel_escape_ratio: float, # The ratio of the real impact velocity to the escape velocity.
+                       **kwargs
+                       ) -> Self:
+        """
+        Create a CollisionEvent object from the given parameters.
+        But the event from this method will not have the time, target, and impactor information.
+        The rho_B can be set by kwargs, if not provided, it will be set to 3500 kg/m^3
+        """
+        other_kwargs = {key: kwargs[key] for key in combined_keys if key in kwargs}
+        obj = cls(collision={}, skip_param_convert=True, **other_kwargs)
+        if "rho_B" in other_kwargs:
+            obj.rho_B = other_kwargs["rho_B"]
+        else:
+            obj.rho_B = 3500 # kg/m3, a typical value for rocky planets.
+        obj.total_mass_sun = M_total * M_Mars / M_SUN
+        obj.gamma = gamma
+        obj.impact_angle_radian = impact_angle * np.pi / 180.0
+        obj.vel_real = vel_escape_ratio * obj.escape_velocity
+        return obj
+    
+    @classmethod
+    def from_collision_data(cls, collision: Dict, **kwargs) -> Self:
+        """
+        Create a CollisionEvent object from the collision data.
+        The collision data should contain the necessary information to calculate the parameters.
+        The rho_B can be set by kwargs, if not provided, it will be calculated from the mass and radius of the target.
+        """
+        other_kwargs = {key: kwargs[key] for key in combined_keys if key in kwargs}
+        obj = cls(collision=collision, **other_kwargs)
+        return obj
+
     @statstic_time
-    def _handle_collision_data(self,collision: Dict,
+    def _record2param(self,collision: Dict,
                              rho_B: Optional[float] = None) -> None:
         if collision["mi"] >= collision["mj"]:
             target_key, impactor_key = "i", "j"
         else:
             target_key, impactor_key = "j", "i"
-        self.time = collision["time"]
+        self._time = float(collision["time"])
         target_index = collision[f"index{target_key}"]
         impactor_index = collision[f"index{impactor_key}"]
         target_x = np.array([collision[f"x{target_key}"], collision[f"y{target_key}"], collision[f"z{target_key}"]])
@@ -86,12 +113,15 @@ class CollisionEvent():
         impactor_mass = collision[f"m{impactor_key}"]
         target_radius = collision[f"r{target_key}"]
         #impactor_radius = collision[f"r{impactor_key}"]
-        self.target = target_index
-        self.impactor = impactor_index
+        self._target = target_index
+        self._impactor = impactor_index
+        self._have_time_target_impactor = True
         self.total_mass_sun = (target_mass + impactor_mass) 
         self.gamma = impactor_mass / self.total_mass_sun
-        self.delv =( impactor_v - target_v ) * convert_factor_from_auptu_to_kmps * 1e3  # in m/s
-        self.delx = ( impactor_x - target_x ) * AU2M   # in m
+        delv =( impactor_v - target_v ) * convert_factor_from_auptu_to_kmps * 1e3  # in m/s
+        delx = ( impactor_x - target_x ) * AU2M   # in m
+        self.impact_angle_radian = impact_angle_radians(delx, delv)
+        self.vel_real = float(np.linalg.norm(delv))
         if rho_B is not None:
             self.rho_B = rho_B
         else:
@@ -105,24 +135,17 @@ class CollisionEvent():
         gamma = self.gamma
         vel = self.vel_escape_ratio
         # round agnle to nearest choice: 0.0, 30.0, 45.0, 60.0, 90.0
-        if self.impact_angle >= 60.0 and self.impact_angle < 75.0:
-            impact_angle = 60
-        elif self.impact_angle >= 75.0 and self.impact_angle <= 90.0:
-            impact_angle = 90
-        elif self.impact_angle >=0 and self.impact_angle < 15.0:
+        if 0 <= self.impact_angle < 15.0:
             impact_angle = 0
-        elif self.impact_angle >=15.0 and self.impact_angle < 30:
+        elif 15.0 <= self.impact_angle <= 30.0:
             impact_angle = 30
+        elif 60.0 <= self.impact_angle < 75.0:
+            impact_angle = 60
+        elif 75.0 <= self.impact_angle <= 90.0:
+            impact_angle = 90
         else:
             impact_angle = round(self.impact_angle / 15.0) * 15
         return Model(Mtotal=Mtotal, gamma=gamma, vel=vel, impact_angle=impact_angle, **kwargs)
-
-    def _cooling_init(self, **kwargs):
-        if "rho_B" not in kwargs:
-            kwargs["rho_B"] = self.rho_B
-        if "r" not in kwargs:
-            kwargs["r"] = self.radius
-        return MagmaOceanParameters(**kwargs)
 
     def melt_T_increase(self, 
                         C_p:float = 1200 # J/kg/K 
@@ -141,10 +164,17 @@ class CollisionEvent():
         return result
     @cached_property
     def av_du_gain(self) -> float:
-        return float(np.mean(self.du_gain[self.melt_label==1]))
+        if self.melt_fraction > 1e-6:
+            return float(np.mean(self.du_gain[self.melt_label==1]))
+        else:
+            return 0.0
     @cached_property
     def cooling_params(self) -> MagmaOceanParameters:
-        return self._cooling_init(**self._cooling_kwargs)
+        if "rho_B" not in self._cooling_kwargs:
+            self._cooling_kwargs["rho_B"] = self.rho_B
+        if "r" not in self._cooling_kwargs:
+            self._cooling_kwargs["r"] = self.radius
+        return MagmaOceanParameters(**self._cooling_kwargs)
     @cached_property
     def melt_model(self) -> Model:
         return self._magma_init(**self._magma_produce_kwargs)
@@ -177,10 +207,6 @@ class CollisionEvent():
         """The total mass of the colliding system in Earth mass."""
         return self.total_mass_sun * M_SUN / M_EARTH
     @cached_property
-    def impact_angle_radian(self) -> float:
-        """The impact angle in radian."""
-        return impact_angle_radians(self.delx, self.delv)
-    @cached_property
     def impact_angle(self) -> float:
         """The impact angle in degree."""
         return self.impact_angle_radian * 180.0 / np.pi  # in degree
@@ -188,10 +214,6 @@ class CollisionEvent():
     def radius(self) -> float:
         """The radius of the merged body after collision in m, will calculate from the total mass and bulk density."""
         return ( self.total_mass / ( (4/3) * np.pi * self.rho_B ) )**(1/3)
-    @cached_property
-    def vel_real(self) -> float:
-        """The real impact velocity in m/s."""
-        return float(np.linalg.norm(self.delv))
     @cached_property
     def vel_escape_ratio(self) -> float:
         """The ratio of the real impact velocity to the escape velocity."""
@@ -447,7 +469,8 @@ class SimulationMeltsEvolution():
     def __del__(self):
         if self._new_melt_frac_since_last_cache > 0 or not self._evol_cache_updated:
             self._final_save()
-    
+
+# Only to draw the test figures, do not use anymore.
 class CollisionResult():
     def __init__(self, **kwargs) -> None:
         magma_init_keys = ['impact_angle','Mtotal','gamma','vel']
@@ -745,6 +768,191 @@ def boundary_magma_model(draw_directly=False) -> Any:
     else:
         return back_ground_it
 
+def f_T_C_m_contour(draw_directly: bool=False,
+                            gamma: float = 0.1,
+                            impact_angle: int= 60,
+                            gamma_angle_list = None,
+                            ) -> Any:
+    """
+    A parameter test for `CollisionResult`. It will generate the data
+    in an parameter space of x=M_total=0.03 ~ 40 M_mars (log scale), y=v_rel=0.3 ~ 9 v_esc (log scale) mesh.
+    The gamma can be choice of [0.01, 0.03, 0.1, 0.2, 0.5], and the impact angle can be choice of [0, 30, 45,60,90] degree.
+    If draw_directly is True, it will directly draw the contour plot of melt fraction and peak temperature in the parameter space, and save the figure.
+    If draw_directly is False, it will return a function that can be used to draw the contour plot of melt fraction and peak temperature in the parameter space.
+    If gamma_angle_list is None, it will use the gamma and impact_angle in the arguments.
+    If gamma_angle_list is not None, the gamma and impact_angle will be ignored, but 
+        use the (gamma, impact_angle) pairs in the gamma_angle_list to draw the contour plot.
+        In the meanwhile, if draw_directly is false, the returned function should also accept an index parameter to specify which (gamma, impact_angle) pair in the gamma_angle_list to draw.
+    The gamma_angle_list should be a list of tuples, each tuple is (gamma, impact_angle).
+    The function is expensive, so when you want to call with draw_directly=False and different gamma, impact_angle value, 
+        use gamma_angle_list to specify all the (gamma, impact_angle) pairs ahead, and call the return function with different index.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+    from matplotlib.contour import QuadContourSet
+    MIN_M = 0.03
+    MAX_M = 40
+    MIN_V = 0.3
+    MAX_V = 9
+    M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 80)
+    v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 80)
+    M_grid, v_grid = np.meshgrid(M_array, v_array, indexing='ij')
+    contor_titles = {
+        "melt_fraction": r"$f_{melt}$",
+        "peak_temperature": r"$T_{peak}$ (K)",
+        "C": r"$C/C_{0}$",
+        "M_loss": r"$M_{loss}/M_{melt}$",
+    }
+    def calculate_contour(gamma_value: float, impact_angle_value: int) -> Dict[str, np.ndarray]:
+        melt_fraction_array = np.zeros(M_grid.shape)
+        peak_temperature_array = np.zeros(M_grid.shape)
+        C_array = np.zeros(M_grid.shape)
+        M_loss_array = np.zeros(M_grid.shape)
+        for i in range(M_grid.shape[0]):
+            for j in range(M_grid.shape[1]):
+                #print(i,j)
+                M = M_grid[i,j]
+                v = v_grid[i,j]
+                collision_result = CollisionEvent.from_parameter(M_total=M, gamma=gamma_value, vel_escape_ratio=v, impact_angle=impact_angle_value)
+                try:
+                    melt_fraction_array[i,j] = collision_result.melt_fraction
+                    peak_temperature_array[i,j] = collision_result.melt_T_increase() + 1200
+                    devol_result = collision_result.devoltilize(final_only=True)
+                    C_array[i,j] = devol_result[3]
+                    M_loss_array[i,j] = devol_result[2] / collision_result.melt_mass
+                except Exception as e:
+                    melt_fraction_array[i,j] = np.nan
+                    peak_temperature_array[i,j] = np.nan
+                    C_array[i,j] = np.nan
+                    M_loss_array[i,j] = np.nan
+                    # in test mode, raise the error to see where the problem is.
+                    raise e
+        return {
+            "melt_fraction": melt_fraction_array,
+            "peak_temperature": peak_temperature_array,
+            "C": C_array,
+            "M_loss": M_loss_array,
+        }
+    if gamma_angle_list is None:
+        gamma_angle_list = [(gamma, impact_angle)]
+        is_one_pair = True
+    else:
+        is_one_pair = False
+    MT_Datas = []
+    dir_this_file = os.path.dirname(os.path.abspath(__file__))
+    for index, (gamma_value, impact_angle_value) in enumerate(gamma_angle_list):
+        if not any(np.isclose(gamma_value, valid_gamma, atol=1e-6) for valid_gamma in [0.01, 0.03, 0.1, 0.2, 0.5]):
+            raise ValueError(f"Gamma should be one of [0.01, 0.03, 0.1, 0.2, 0.5], but got {gamma}.")
+        if impact_angle_value not in [0, 30, 45, 60, 90]:
+            raise ValueError(f"Impact angle should be one of [0, 30, 45, 60, 90] degree, but got {impact_angle}.")
+        cache_file_name = os.path.join(dir_this_file, f"./.cache/magma_model_MT_contour_cache_gamma{gamma_value:.2f}_angle{impact_angle_value:02d}.npy")
+        if os.path.exists(cache_file_name):
+            MT_Data = np.load(cache_file_name, allow_pickle=True).item()
+        else:
+            MT_Data = calculate_contour(gamma_value, impact_angle_value)
+            np.save(cache_file_name, MT_Data, allow_pickle=True) # type: ignore
+        MT_Datas.append(MT_Data)
+    def draw_it(ax: Axes,
+                index: int = 0,
+                contour: str = "melt_fraction",
+                Mass_unit: str = "M_Mars",
+                **contor_kwargs
+                ) -> QuadContourSet:
+        assert contour in ["melt_fraction", "peak_temperature", "C", "M_loss"], f"Contor should be one of ['melt_fraction', 'peak_temperature', 'C', 'M_loss'], but got {contour}."
+        assert Mass_unit in ["M_Mars", "M_Earth"], f"Mass_unit should be either 'M_Mars' or 'M_Earth', but got {Mass_unit}."
+        related_Data = MT_Datas[index]
+        contor_data = related_Data[contour]
+        if "levels" in contor_kwargs:
+            levels = contor_kwargs.pop("levels")
+        else:
+            levels = 10
+        if "cmap" in contor_kwargs:
+            cmap = contor_kwargs.pop("cmap")
+        else:
+            cmap = "viridis"
+        if Mass_unit == "M_Earth":
+            need_convert_to_earth = True
+            M_grid_plot = M_grid.copy() / M_EARTH * M_Mars
+        else:
+            need_convert_to_earth = False
+            M_grid_plot = M_grid
+        # 如果是peak_temperature, 
+        if contour == "peak_temperature":
+            # 将np.nan的地方设置为1200K, 也就是没有升温的地方。
+            contor_data = np.where(np.isnan(contor_data), 1200, contor_data)
+            # 将超过10 000K 的地方设置为 10 000K, 也就是模型的最高温度。
+            contor_data = np.where(contor_data > 10000, 10000, contor_data)
+        contor_plot = ax.contourf(M_grid_plot, v_grid, contor_data, levels=levels, cmap=cmap, **contor_kwargs)
+        if contour != "peak_temperature":
+            #添加colorbar
+            plt.colorbar(contor_plot, ax=ax)
+        else:
+            # 对于peak_temperature, 如果最高温度超过10000K, 就在colorbar上标注一个特殊的标签，表示超过模型最高温度。
+            cbar = plt.colorbar(contor_plot, ax=ax)
+            ticks = cbar.get_ticks()
+            # 去除ticks的最高点，如果它超过了10000
+            ticks = ticks[ticks <= 10000]
+            # 去除ticks中小于1200的点，因为1200K是没有升温的地方，不需要标注。
+            ticks = ticks[ticks >= 1200]
+            cbar.set_ticks(list(ticks) + [10000])
+            cbar.set_ticklabels([*map(str, ticks), '>10000K'])
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_ylim(0.9, MAX_V)
+        ax.set_yticks([1, 3, 9])
+        ax.set_yticks([2, 4, 5, 6, 7, 8], minor=True) 
+        # 设置yticks的label为整数，而非科学计数法
+        ax.set_yticklabels([f'{int(tick)}' for tick in ax.get_yticks()])
+        # 忽略minor ticks的标签
+        ax.tick_params(which='minor', labelbottom=False, labelleft=False)
+        if not need_convert_to_earth:
+            ax.set_xlabel(r'Total Mass ($M_{Mars}$)')
+        else:
+            ax.set_xlabel(r'Total Mass ($M_{Earth}$)')
+        ax.set_ylabel(r'Velocity (v/$v_{esc}$)')
+        ax.set_title(contor_titles[contour] +
+                     " (Gamma = " + format_float(gamma_angle_list[index][0],1,2) +
+                     f", Impact Angle = {gamma_angle_list[index][1]}°)")
+        return contor_plot
+    def draw_first(
+            ax: Axes,
+            contor: str = "melt_fraction",
+            Mass_unit: str = "M_Mars",
+            **contor_kwargs
+            ) -> QuadContourSet:
+        return draw_it(ax, index=0, contor=contor, Mass_unit=Mass_unit, **contor_kwargs)
+    if not draw_directly:
+        if is_one_pair:
+            return draw_first
+        else:
+            return draw_it
+    H_SUBPLOT = 5
+    W_SUBPLOT = 6
+    if len(gamma_angle_list) <=8:
+        SUBPLOT_COLS = 4
+        SUBPLOT_ROWS = len(gamma_angle_list)
+    else:
+        # 如果有超过8对参数组合，行数就设置为sqrt(gamma_angle_list*4), 向上取整
+        SUBPLOT_ROWS = math.ceil(math.sqrt(len(gamma_angle_list)*4))
+        # 列数设置为 4*SUBPLOT_ROWS/len(gamma_angle_list)，向上取整
+        SUBPLOT_COLS = math.ceil(4*SUBPLOT_ROWS/len(gamma_angle_list))
+    fig = plt.figure(figsize=(W_SUBPLOT*SUBPLOT_COLS, H_SUBPLOT*SUBPLOT_ROWS))
+    # for each (gamma, impact_angle) pair, draw the contour of melt fraction, peak temperature, C, and M_loss in a row.
+    for index in range(len(gamma_angle_list)):
+        logical_col_index = index % SUBPLOT_ROWS
+        logical_row_index = index // SUBPLOT_ROWS
+        ax_melt_fraction = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+1)
+        draw_it(ax_melt_fraction, index=index, contour="melt_fraction", levels=np.linspace(0, 1, 11))
+        ax_peak_temperature = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+2)
+        draw_it(ax_peak_temperature, index=index, contour="peak_temperature", levels=10)
+        ax_C = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+3)
+        draw_it(ax_C, index=index, contour="C", levels=10)
+        ax_M_loss = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+4)
+        draw_it(ax_M_loss, index=index, contour="M_loss", levels=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "magma_model_MT_contour_test.pdf"))
+
+
 def test_magma_model() -> None:
     """
     Parameter test for `CollisionResult`, and plot them.
@@ -925,4 +1133,17 @@ def main() -> None:
 if __name__ == "__main__":
     # main()
     # test_magma_model()
-    boundary_magma_model(draw_directly=True)
+    # boundary_magma_model(draw_directly=True)
+    f_T_C_m_contour(draw_directly=True,
+                    gamma_angle_list=[
+                                      (0.01, 30), 
+                                      (0.01, 90),
+                                      (0.01, 45),
+                                      (0.03, 30), 
+                                      (0.03, 45),
+                                      (0.03, 90), 
+                                      (0.2, 30),
+                                      (0.2, 90),
+                                      (0.5, 30),
+                                      (0.5, 90),
+                    ])

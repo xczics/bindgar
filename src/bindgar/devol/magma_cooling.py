@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import math
 import numpy as np
 from ..physics import Stefan_Boltzmann, G, R_gas
+from ..common import format_float
 
 @dataclass(kw_only=True)
 class MagmaOceanParameters:
@@ -30,7 +31,7 @@ class MagmaOceanParameters:
         return (yita_ratio*escape_ratio*size_factor)**(3/2)
 
 
-def T_from_T_s(T_s: float, parameter: MagmaOceanParameters) -> float:
+def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float:
     r"""Calculate the average temperature magma ocean from the surface temperature.
     T = T_s * (1 + T_s^2 * (frac{\kapa v}{\rho_M g_s \alpha_v})^(1/4) * (2 \sigma / k)^(3/4))
 
@@ -44,10 +45,14 @@ def T_from_T_s(T_s: float, parameter: MagmaOceanParameters) -> float:
     A = parameter.kapa * parameter.v / (parameter.rho_M * parameter.g_s # type: ignore
                                          * parameter.alpha_V ) 
     B = 2 * parameter.sb_factor * Stefan_Boltzmann / parameter.k
-    Result_from_Calogero = T_s * (1 + T_s ** 2 * A ** (1/4) * B ** (3/4))
-    return Result_from_Calogero
+    if not diff:
+        Result_from_Calogero = T_s * (1 + T_s ** 2 * A ** (1/4) * B ** (3/4))
+        return Result_from_Calogero
+    else:
+        dT_dT_s = 1 + 3 * T_s ** 2 * A ** (1/4) * B ** (3/4)
+        return dT_dT_s
 
-def T_s_from_T (T: float, parameter: MagmaOceanParameters, threshold: float = 1e-5) -> float:
+def T_s_from_T (T: float, parameter: MagmaOceanParameters, threshold: float = 1e-2, newton=False) -> float:
     """
     Calculate the surface temperature from the average temperature of the magma ocean.
     It will use the half interval search to find the solution from `T_from_T_s`.
@@ -57,16 +62,22 @@ def T_s_from_T (T: float, parameter: MagmaOceanParameters, threshold: float = 1e
     Returns:
         float: Surface temperature in K.
     """
-    T_s_low = 0.0
-    T_s_high = T
-    while T_s_high - T_s_low > threshold:
-        T_s_mid = (T_s_low + T_s_high) / 2
-        T_mid = T_from_T_s(T_s_mid, parameter)
-        if T_mid < T:
-            T_s_low = T_s_mid
-        else:
-            T_s_high = T_s_mid
-    return (T_s_low + T_s_high) / 2
+    if not newton:
+        T_s_low = 0.0
+        T_s_high = T
+        while T_s_high - T_s_low > threshold:
+            T_s_mid = (T_s_low + T_s_high) / 2
+            T_mid = T_from_T_s(T_s_mid, parameter)
+            if T_mid < T:
+                T_s_low = T_s_mid
+            else:
+                T_s_high = T_s_mid
+        return (T_s_low + T_s_high) / 2
+    else:
+        T_s_guess = T - 100
+        while abs(T_from_T_s(T_s_guess, parameter) - T) > threshold:
+            T_s_guess -= (T_from_T_s(T_s_guess, parameter) - T) / T_from_T_s(T_s_guess, parameter, diff=True)
+        return T_s_guess
 
 def vapour_pressure(T: float) -> float:
     r""" Calculate the vapour pressure by empirical expression obtained from thermodynamic liquid-vapour model.
@@ -181,13 +192,13 @@ def step_concentration (T: float, M_l: float, Mass_loss_step:float,version_D: st
     C_step_factor = M_l / (M_l + Mass_loss_step * (D - 1))
     return C_step_factor
 
-def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameters, dT: float=0.1, T_end: float=1200, final_only: bool=True) -> tuple:
+def devoltilization(T_init: float, M_l_init: float, params: MagmaOceanParameters, dT: float=5e-4, T_end: float=1200, final_only: bool=True) -> tuple:
     r""" Simulate the devolatilization process of the magma ocean from initial temperature T_init and initial mass M_l_init.
     Args:
         T_init (float): Initial temperature in K.
         M_l_init (float): Initial mass of the magma ocean in kg.
         params (MagmaOceanParameters): Parameters of the magma ocean.
-        dT (float): Temperature step in K.
+        dT (float): Temperature steps, in the ratio of current T. If dT is 5e-4, and current T is 2000K, then the T decrease in each step will be 1.0K in the first step.
         T_end (float): End temperature in K.
     Returns:
         t_total (float): Total time of the devolatilization process in s.
@@ -196,6 +207,11 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
     """
     T = T_init
     M_l = M_l_init
+    if M_l_init <= 0:
+        if final_only:
+            return T, 0.0, 0.0, 1.0
+        else:
+            return [T], [0.0], [0.0], [1.0]
     t_total = 0.0
     M_loss_total = 0.0
     C = 1.0
@@ -210,17 +226,21 @@ def devoltilization (T_init: float, M_l_init: float, params: MagmaOceanParameter
         C_array.append(float(C))
     while T > 1200:
         cooling_rate = float(pTpt(T, M_l, params))
-        Dt = dT / cooling_rate
+        T_decrease = dT * T
+        Dt = T_decrease / cooling_rate
         t_total += Dt
         M_loss_step = float(pMpt(T,params) * Dt)
         M_loss_total += M_loss_step
         C *= float(step_concentration (T, M_l, M_loss_step))
-        T -= dT
+        M_l -= M_loss_step
+        T -= T_decrease
         if not final_only:
             T_array.append(T)
             t_total_array.append(t_total)
             M_loss_array.append(M_loss_total)
             C_array.append(C)
+        if M_l <= 0:
+            break
     if final_only:
         return T, t_total, M_loss_total, C
     else:
@@ -369,33 +389,6 @@ def vi_M_critical():
     # legend at left-top corner
     plt.legend(loc='upper left')
     plt.savefig('M_critical.pdf')
-
-def format_float(value: float, significant_digits: int = 1, max_decimal_places: int = 2) -> str:
-    """
-    Format a float value to a string. 
-    Example output with significant_digits=1 and max_decimal_places=2:
-    0.1, 0.2, 3, $4 \\times 10^2$, 0.01, $2 \\times 10^{-3}$.
-    And the following str will never output with significant_digits=1 and max_decimal_places=2:
-    - 2.1 # more than 1 significant digit
-    - 0.001 # more than 2 decimal places
-    Args:
-        value (float): The float value to format.
-        significant_digits (int): The number of significant digits to keep.
-        max_decimal_places (int): The maximum number of decimal places to keep.
-    """
-    if value == 0:
-        return '0'
-    elif abs(value) < 10 ** (-max_decimal_places):
-        exponent = math.floor(math.log10(abs(value)))
-        mantissa = value / (10 ** exponent)
-        return f'${mantissa:.{significant_digits}g} \\times 10^{{{exponent}}}$'
-    elif abs(value) >= 10 ** significant_digits:
-        exponent = math.floor(math.log10(abs(value)))
-        mantissa = value / (10 ** exponent)
-        return f'${mantissa:.{significant_digits}g} \\times 10^{{{exponent}}}$'
-    else:
-        return f'{value:.{max_decimal_places}f}'.rstrip('0').rstrip('.')
-
 
 def vi_effect_blackbody():
     """

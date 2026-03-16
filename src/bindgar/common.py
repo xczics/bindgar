@@ -1,5 +1,6 @@
 from typing import List
 import numpy as np
+import math
 from typing import Union, Optional, Tuple, Dict
 from matplotlib.axes import Axes
 import os
@@ -233,6 +234,32 @@ def bg_colorbar(ax: Axes,
         va='top',
         fontsize=title_size,
     )
+
+def format_float(value: float, significant_digits: int = 1, max_decimal_places: int = 2) -> str:
+    """
+    Format a float value to a string. 
+    Example output with significant_digits=1 and max_decimal_places=2:
+    0.1, 0.2, 3, $4 \\times 10^2$, 0.01, $2 \\times 10^{-3}$.
+    And the following str will never output with significant_digits=1 and max_decimal_places=2:
+    - 2.1 # more than 1 significant digit
+    - 0.001 # more than 2 decimal places
+    Args:
+        value (float): The float value to format.
+        significant_digits (int): The number of significant digits to keep.
+        max_decimal_places (int): The maximum number of decimal places to keep.
+    """
+    if value == 0:
+        return '0'
+    elif abs(value) < 10 ** (-max_decimal_places):
+        exponent = math.floor(math.log10(abs(value)))
+        mantissa = value / (10 ** exponent)
+        return f'${mantissa:.{significant_digits}g} \\times 10^{{{exponent}}}$'
+    elif abs(value) >= 10 ** significant_digits:
+        exponent = math.floor(math.log10(abs(value)))
+        mantissa = value / (10 ** exponent)
+        return f'${mantissa:.{significant_digits}g} \\times 10^{{{exponent}}}$'
+    else:
+        return f'{value:.{max_decimal_places}f}'.rstrip('0').rstrip('.')
 
 
 # An wrapper to statstic running time of a function. 
