@@ -61,6 +61,172 @@ COLLISION_DRAWER_PARAMS: InputAcceptable = {
         }
     }
 
+@register_subplot_drawer("collision-speeds", params=COLLISION_DRAWER_PARAMS)
+def draw_collision_speeds(ax: Axes,
+                          param: Dict[str, Any]) -> None:
+    simulations_lists = param["simulations_lists"]
+    m_start = param["m_start"]
+    m_end = param["m_end"]
+    mass_filter = tell_m_in_range(m_start, m_end)
+    if param["color_map"] is not None:
+        color_map = CyclicList(param["color_map"])
+    else:
+        color_map = default_colors
+    if not param["group_mode"]:
+        simulations_groups = [simulations_lists]
+    else:
+        simulations_groups = simulations_lists
+    label = param["label"] if param["label"] is not None else []
+    for index, simpath_lists in enumerate(simulations_groups):
+        relvs = []
+        for simpath in simpath_lists:
+            simobj = SimulationOutput(simpath)
+            concern_indexes = simobj.filter_final_indexes(mass_filter)
+            for collision in simobj.collisions:
+                if collision['indexi'] in concern_indexes or collision['indexj'] in concern_indexes:
+                    dvx = collision['vxi'] - collision['vxj']
+                    dvy = collision['vyi'] - collision['vyj']
+                    dvz = collision['vzi'] - collision['vzj']
+                    relv = np.sqrt(dvx**2 + dvy**2 + dvz**2)
+                    relvs.append(relv)
+        if relvs == []:
+            continue
+        relvs = np.array(relvs)
+        relvs *= convert_factor_from_auptu_to_kmps
+        ax.scatter(relvs, np.zeros_like(relvs), color=color_map[index], s=5, alpha=0.6)
+        x_max = np.max(relvs) * 1.1
+        x_min = np.min(relvs) * 0.9
+        kde_x = np.linspace(x_min, x_max, 200)
+        kde = stastic_kde(relvs, kde_x)
+        ax.plot(kde_x, kde, color=color_map[index], lw=2, label=label[index])
+    if param["x_lim"] is not None:
+        ax.set_xlim(param["x_lim"][0], param["x_lim"][1])
+    ax.set_title(f"Collision Relative Speeds for Final Mass in {m_start} - {m_end} " + r"$M_{earth}$")
+    ax.set_xlabel("Collision Relative Speed (km/s)")
+    ax.set_ylabel("KDE")
+    ax.legend()
+
+COLLISION_RESULT_PARAMS: InputAcceptable = {
+    "simulations_lists" : {
+        "default": None,
+        "help": "list of simulation paths",
+        "short": "l",
+        "type": list,
+    },
+    "m_range" : {
+        "default": [0.01, 5.0],
+        "help": "range of merged mass during plot (in M_earth), [m_start, m_end]",
+        "type": list,
+    },
+    "m_log_scale" : {
+        "default": True,
+        "help": "whether to use log scale for mass axis",
+        "type": bool,
+    },
+    "speed_range" : {
+        "default": [0.9, 10.0],
+        "help": "range of collision relative speed during plot, [v_start, v_end]. The unit is v_esc",
+        "type": list,
+    },
+    "speed_log": {
+        "default": True,
+        "help": "whether to use log scale for speed axis",
+        "type": bool,
+    },
+    "label" : {
+        "default": None,
+        "help": "label for the plot, list of str if group_mode is True, else str",
+        "type": list,
+    },
+    "group_mode" : {
+        "default": False,
+        "help": "whether to group by simulation groups",
+        "type": bool,
+    },
+    "shape_map": {
+        "default": ['d', 'o', '^', 's', 'v', '<', '>', 'p', '*'],
+        "help": "shape map for different simulation groups",
+        "type": list,
+    },
+    "color_map": {
+        "default": None,
+        "help": "color map for different simulation groups, if not provided, use default colors from matplotlib",
+        "type": list,
+    },
+    "filter_list": {
+        "default": None,
+        "help": "list of filters to apply on the collisions in each subplots. Each element should be a tuple with four element: (min_gamma, max_gamma, min_angle, max_angle)",
+        "type": list,
+    },
+    "background_list": {
+        "default": None,
+        "help": "list of parameters to chose which background to plot. Each element should be a tuple: (background_contour_name, gamma, angle)",
+        "type": list,
+    }
+}
+
+
+@register_subplot_drawer("speed-and-result", params=COLLISION_RESULT_PARAMS)
+def draw_speed_with_result(axs: List[Axes],
+                                 param: Dict[str, Any]) -> None:
+    simulations_lists = param["simulations_lists"]
+    m_range = param["m_range"]
+    speed_range = param["speed_range"]
+    shape_map = CyclicList(param["shape_map"])
+    color_map = CyclicList(param["color_map"]) if param["color_map"] is not None else default_colors
+    label = param["label"] if param["label"] is not None else []
+    if not param["group_mode"]:
+        simulations_groups = [simulations_lists]
+    else:
+        simulations_groups = simulations_lists
+    assert param["filter_list"] is not None and param["background_list"] is not None, "filter_list and background_list should be provided."
+    assert len(param["filter_list"]) == len(param["background_list"]), "filter_list and background_list should have the same length."
+    number_sub_plot = len(param["filter_list"])
+    assert len(axs) >= number_sub_plot, "The number of subplots should be at least the same as the length of filter_list and background_list."
+    from ..devol.collision_event import f_T_C_m_contour
+    background_drawer = f_T_C_m_contour(draw_directly=False, gamma_angle_list=[param["background_list"][i][1:] for i in range(number_sub_plot)])
+    plot_data = {}
+    from ..devol.collision_event import CollisionEvent
+    for index, simpath_lists in enumerate(simulations_groups):
+        for simpath in simpath_lists:
+            simobj = SimulationOutput(simpath)
+            with simobj.collisions as collisions:
+                for collision in collisions:
+                    col = CollisionEvent(collision)
+                    v_rel = col.vel_escape_ratio
+                    m_merge = col.total_mass_in_earth
+                    gamma = col.gamma
+                    angle = col.impact_angle
+                    for i in range(number_sub_plot):
+                        filter_gamma_min, filter_gamma_max, filter_angle_min, filter_angle_max = param["filter_list"][i]
+                        if (gamma >= filter_gamma_min) and (gamma < filter_gamma_max) and (angle >= filter_angle_min) and (angle < filter_angle_max):
+                            if i not in plot_data:
+                                plot_data[i] = {}
+                            this_filter_data = plot_data[i]
+                            if index not in this_filter_data:
+                                this_filter_data[index] = []
+                            this_filter_data[index].append((m_merge, v_rel))
+    for i in range(number_sub_plot):
+        ax = axs[i]
+        background_name = param["background_list"][i][0]
+        background_drawer(ax, index=i, contour=background_name, Mass_unit="M_Earth")
+        if i in plot_data:
+            this_filter_data = plot_data[i]
+            for index in this_filter_data:
+                data = np.array(this_filter_data[index])
+                m_merge = data[:,0]
+                v_rel = data[:,1]
+                if param["m_log_scale"]:
+                    ax.set_xscale("log")
+                if param["speed_log"]:
+                    ax.set_yscale("log")
+                ax.scatter(m_merge, v_rel, marker=shape_map[index], color=color_map[index], s=10, alpha=0.9, label=label[index])
+        ax.set_xlim(m_range[0], m_range[1])
+        ax.set_ylim(speed_range[0], speed_range[1])
+        ax.set_xlabel("Merged Mass (" + r"$M_{earth}$" + ")")
+        ax.set_ylabel(r"Collision Relative Speed (v/$v_{esc}$)")
+
+
 COLLISION_MASS_DISTRIBUTION_PARAMS: InputAcceptable = {
     "simulations_lists" : {
         "default": None,
@@ -124,52 +290,6 @@ COLLISION_MASS_DISTRIBUTION_PARAMS: InputAcceptable = {
         "type": str,
     }
 }
-
-@register_subplot_drawer("collision-speeds", params=COLLISION_DRAWER_PARAMS)
-def draw_collision_speeds(ax: Axes,
-                          param: Dict[str, Any]) -> None:
-    simulations_lists = param["simulations_lists"]
-    m_start = param["m_start"]
-    m_end = param["m_end"]
-    mass_filter = tell_m_in_range(m_start, m_end)
-    if param["color_map"] is not None:
-        color_map = CyclicList(param["color_map"])
-    else:
-        color_map = default_colors
-    if not param["group_mode"]:
-        simulations_groups = [simulations_lists]
-    else:
-        simulations_groups = simulations_lists
-    label = param["label"] if param["label"] is not None else []
-    for index, simpath_lists in enumerate(simulations_groups):
-        relvs = []
-        for simpath in simpath_lists:
-            simobj = SimulationOutput(simpath)
-            concern_indexes = simobj.filter_final_indexes(mass_filter)
-            for collision in simobj.collisions:
-                if collision['indexi'] in concern_indexes or collision['indexj'] in concern_indexes:
-                    dvx = collision['vxi'] - collision['vxj']
-                    dvy = collision['vyi'] - collision['vyj']
-                    dvz = collision['vzi'] - collision['vzj']
-                    relv = np.sqrt(dvx**2 + dvy**2 + dvz**2)
-                    relvs.append(relv)
-        if relvs == []:
-            continue
-        relvs = np.array(relvs)
-        relvs *= convert_factor_from_auptu_to_kmps
-        ax.scatter(relvs, np.zeros_like(relvs), color=color_map[index], s=5, alpha=0.6)
-        x_max = np.max(relvs) * 1.1
-        x_min = np.min(relvs) * 0.9
-        kde_x = np.linspace(x_min, x_max, 200)
-        kde = stastic_kde(relvs, kde_x)
-        ax.plot(kde_x, kde, color=color_map[index], lw=2, label=label[index])
-    if param["x_lim"] is not None:
-        ax.set_xlim(param["x_lim"][0], param["x_lim"][1])
-    ax.set_title(f"Collision Relative Speeds for Final Mass in {m_start} - {m_end} " + r"$M_{earth}$")
-    ax.set_xlabel("Collision Relative Speed (km/s)")
-    ax.set_ylabel("KDE")
-    ax.legend()
-
 @register_subplot_drawer("speed-mass-distribution", params=COLLISION_MASS_DISTRIBUTION_PARAMS)
 def draw_speed_mass_distribution(ax: Axes,
                                  param: Dict[str, Any]) -> None:
@@ -177,10 +297,7 @@ def draw_speed_mass_distribution(ax: Axes,
     m_range = param["m_range"]
     speed_range = param["speed_range"]
     unit = param["unit"]
-    if param["shape_map"] is not None:
-        shape_map = CyclicList(param["shape_map"])
-    else:
-        shape_map = default_colors
+    shape_map = CyclicList(param["shape_map"])
     if not param["group_mode"]:
         simulations_groups = [simulations_lists]
     else:
@@ -415,6 +532,52 @@ def speed_mass_distribution():
     plt.tight_layout()
     plt.savefig(figure_file)
 
+@register_command("speed-with-result", help_msg="Draw the distribution of collision speeds .vs. merged mass, with backgound of their collision result.")
+def speed_with_result():
+    DEFAULT_PARAMS: InputAcceptable = {
+        "figure_file" : {
+            "default": "collision_speed_with_result.png",
+            "help": "output figure file name",
+            "type": str,
+        },
+        "sub_figure_size" : {
+            "default": (6,5),
+            "help": "subfigure size in inches",
+            "type": tuple,
+        },
+        "n_rows": {
+            "default": None,
+            "help": "number of rows in the figure",
+            "type": int,
+        },
+        "n_cols": {
+            "default": None,
+            "help": "number of columns in the figure",
+            "type": int,
+        },
+        **COLLISION_RESULT_PARAMS
+    }
+    input_params = InputLoader(DEFAULT_PARAMS).load()
+    figure_file = input_params["figure_file"]
+    n_subplots = len(input_params["filter_list"])
+    n_rows = input_params["n_rows"]
+    n_cols = input_params["n_cols"]
+    if n_rows is None and n_cols is None:
+        import math
+        n_rows = math.ceil(n_subplots**0.5)
+    if n_cols is None:
+        n_cols = n_subplots // n_rows + (n_subplots % n_rows > 0)
+    if n_rows is None:
+        n_rows = n_subplots // n_cols + (n_subplots % n_cols > 0)
+    sub_w, wub_h = input_params["sub_figure_size"]
+    plt.figure(figsize=(sub_w*n_cols, wub_h*n_rows))
+    axes = []
+    for i in range(n_subplots):
+        ax = plt.subplot(n_rows, n_cols, i+1)
+        axes.append(ax)
+    draw_speed_with_result(axes, input_params)
+    plt.tight_layout()
+    plt.savefig(figure_file)
                  
 if __name__ == "__main__":
     main()

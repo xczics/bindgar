@@ -770,7 +770,7 @@ def boundary_magma_model(draw_directly=False) -> Any:
 
 def f_T_C_m_contour(draw_directly: bool=False,
                             gamma: float = 0.1,
-                            impact_angle: int= 60,
+                            impact_angle: int= 30,
                             gamma_angle_list = None,
                             ) -> Any:
     """
@@ -790,6 +790,9 @@ def f_T_C_m_contour(draw_directly: bool=False,
     import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
     from matplotlib.contour import QuadContourSet
+    import matplotlib.cm as cm
+    from matplotlib.colors import Normalize
+
     MIN_M = 0.03
     MAX_M = 40
     MIN_V = 0.3
@@ -862,14 +865,31 @@ def f_T_C_m_contour(draw_directly: bool=False,
         assert Mass_unit in ["M_Mars", "M_Earth"], f"Mass_unit should be either 'M_Mars' or 'M_Earth', but got {Mass_unit}."
         related_Data = MT_Datas[index]
         contor_data = related_Data[contour]
-        if "levels" in contor_kwargs:
-            levels = contor_kwargs.pop("levels")
-        else:
-            levels = 10
         if "cmap" in contor_kwargs:
             cmap = contor_kwargs.pop("cmap")
         else:
             cmap = "viridis"
+        if "levels" in contor_kwargs:
+            levels = contor_kwargs.pop("levels")
+        else:
+            if contour != "peak_temperature":
+                levels = np.linspace(0, 1, 21)
+            else:
+                levels = np.linspace(1200, 10000, 21)
+        if "vmin" in contor_kwargs:
+            vmin = contor_kwargs.pop("vmin")
+        else:
+            if contour != "peak_temperature":
+                vmin = 0
+            else:
+                vmin = 1200
+        if "vmax" in contor_kwargs:
+            vmax = contor_kwargs.pop("vmax")
+        else:
+            if contour != "peak_temperature":
+                vmax = 1
+            else:
+                vmax = 10000
         if Mass_unit == "M_Earth":
             need_convert_to_earth = True
             M_grid_plot = M_grid.copy() / M_EARTH * M_Mars
@@ -882,20 +902,24 @@ def f_T_C_m_contour(draw_directly: bool=False,
             contor_data = np.where(np.isnan(contor_data), 1200, contor_data)
             # 将超过10 000K 的地方设置为 10 000K, 也就是模型的最高温度。
             contor_data = np.where(contor_data > 10000, 10000, contor_data)
-        contor_plot = ax.contourf(M_grid_plot, v_grid, contor_data, levels=levels, cmap=cmap, **contor_kwargs)
+        elif contour == "C":
+            #裁切到0-1范围内。
+            contor_data = np.where(contor_data < 0, 0, contor_data)
+            contor_data = np.where(contor_data > 1, 1, contor_data)
+        elif contour == "M_loss":
+            # 裁切到0-1范围内。
+            contor_data = np.where(contor_data < 0, 0, contor_data)
+            contor_data = np.where(contor_data > 1, 1, contor_data)
+        norm = Normalize(vmin=vmin, vmax=vmax)
+        sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+        contor_plot = ax.contourf(M_grid_plot, v_grid, contor_data, levels=levels, cmap=cmap, vmin=vmin, vmax=vmax,norm=norm, **contor_kwargs)
         if contour != "peak_temperature":
             #添加colorbar
-            plt.colorbar(contor_plot, ax=ax)
+            cbar = plt.colorbar(sm, ax=ax, ticks = [0.0, 0.25, 0.5, 0.75, 1.0])
         else:
-            # 对于peak_temperature, 如果最高温度超过10000K, 就在colorbar上标注一个特殊的标签，表示超过模型最高温度。
-            cbar = plt.colorbar(contor_plot, ax=ax)
-            ticks = cbar.get_ticks()
-            # 去除ticks的最高点，如果它超过了10000
-            ticks = ticks[ticks <= 10000]
-            # 去除ticks中小于1200的点，因为1200K是没有升温的地方，不需要标注。
-            ticks = ticks[ticks >= 1200]
-            cbar.set_ticks(list(ticks) + [10000])
-            cbar.set_ticklabels([*map(str, ticks), '>10000K'])
+            # 如果最高温度超过10000K, 就在colorbar上标注一个特殊的标签，表示超过模型最高温度。
+            cbar = plt.colorbar(sm, ax=ax, ticks = [1200, 3000, 5000, 7000, 9000, 10000])
+            cbar.set_ticklabels(['1200K','3000K','5000K','7000K','9000K', '>10000K'])
         ax.set_xscale('log')
         ax.set_yscale('log')
         ax.set_ylim(0.9, MAX_V)
@@ -935,12 +959,14 @@ def f_T_C_m_contour(draw_directly: bool=False,
         # 如果有超过8对参数组合，行数就设置为sqrt(gamma_angle_list*4), 向上取整
         SUBPLOT_ROWS = math.ceil(math.sqrt(len(gamma_angle_list)*4))
         # 列数设置为 4*SUBPLOT_ROWS/len(gamma_angle_list)，向上取整
-        SUBPLOT_COLS = math.ceil(4*SUBPLOT_ROWS/len(gamma_angle_list))
+        SUBPLOT_COLS = 4 * (math.ceil(SUBPLOT_ROWS/len(gamma_angle_list)) + 1)
+        #print(SUBPLOT_ROWS, SUBPLOT_COLS)
     fig = plt.figure(figsize=(W_SUBPLOT*SUBPLOT_COLS, H_SUBPLOT*SUBPLOT_ROWS))
     # for each (gamma, impact_angle) pair, draw the contour of melt fraction, peak temperature, C, and M_loss in a row.
     for index in range(len(gamma_angle_list)):
-        logical_col_index = index % SUBPLOT_ROWS
-        logical_row_index = index // SUBPLOT_ROWS
+        logical_col_index = index // SUBPLOT_ROWS
+        logical_row_index = index % SUBPLOT_ROWS
+        #print(logical_row_index, logical_col_index)
         ax_melt_fraction = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+1)
         draw_it(ax_melt_fraction, index=index, contour="melt_fraction", levels=np.linspace(0, 1, 11))
         ax_peak_temperature = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+2)
@@ -1137,13 +1163,13 @@ if __name__ == "__main__":
     f_T_C_m_contour(draw_directly=True,
                     gamma_angle_list=[
                                       (0.01, 30), 
-                                      (0.01, 90),
+                                      #(0.01, 90),
                                       (0.01, 45),
                                       (0.03, 30), 
                                       (0.03, 45),
-                                      (0.03, 90), 
+                                      #(0.03, 90), 
                                       (0.2, 30),
-                                      (0.2, 90),
+                                      #(0.2, 90),
                                       (0.5, 30),
-                                      (0.5, 90),
+                                      #(0.5, 90),
                     ])
