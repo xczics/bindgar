@@ -14,6 +14,7 @@ convert_factor_from_auptu_to_kmps = 29.8457983 # 1 au/(1/2pi year) to km/s
 Stefan_Boltzmann = 5.670374419e-8  # W m-2 K-4
 G = 6.67430e-11 # Gravitational Constant, m3 kg-1 s-2
 R_gas = 8.314462618 # J mol-1 K-1
+k_b = 1.380649e-23 # Boltzmann constant, J K-1
 
 def DENSITY2K(density: float) -> float:
     # Convert density (in g/cm^3) to k=(3/(4*pi*rho))^(1/3), where rho is in M_sun/au^3

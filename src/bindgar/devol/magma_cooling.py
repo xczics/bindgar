@@ -2,7 +2,7 @@ from typing import Optional, List, overload, Tuple, Final
 from dataclasses import dataclass
 import math
 import numpy as np
-from ..physics import Stefan_Boltzmann, G, R_gas
+from ..physics import Stefan_Boltzmann, G, R_gas, k_b
 from ..common import format_float
 
 @dataclass(kw_only=True)
@@ -52,7 +52,7 @@ def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float
         dT_dT_s = 1 + 3 * T_s ** 2 * A ** (1/4) * B ** (3/4)
         return dT_dT_s
 
-def T_s_from_T (T: float, parameter: MagmaOceanParameters, threshold: float = 1e-2, newton=False) -> float:
+def T_s_from_T (T: float, parameter: MagmaOceanParameters, threshold: float = 1e-2, newton=True) -> float:
     """
     Calculate the surface temperature from the average temperature of the magma ocean.
     It will use the half interval search to find the solution from `T_from_T_s`.
@@ -108,7 +108,7 @@ def rho_surface_from_T (T: float, M_mol: float) -> float:
     P_vapor = vapour_pressure(T)
     M_mol = 0.04  # kg mol-1
     rho_s = P_vapor * M_mol / ( R_gas * T )
-    return rho_s
+    return rho_s # in kg m-3
 
 def isothermal_sound_speed (T: float, M_mol: float) -> float:
     return math.sqrt(( R_gas * T ) / M_mol)
@@ -118,7 +118,9 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
     u_s = c_s \sqrt{ 2 * (\frac{\yita - 1}{3 \yita - 1}
                         (\frac{\yita}{\yita - 1} - \frac{GM}{c_s^2r})) ^ \frac{3 \yita - 1}{\yita -1}
                         (\frac{GM}{4c_s^2r})^ {4 \frac{\yita - 1}{3 \yita - 1}
-                        (\frac{2}{\yita}) ^ {\frac{2}{\ytia - 1 }} } }
+                        (\frac{2}{\yita}) ^ {\frac{2}{\ytia - 1 }} } } for yita != 1.0
+    u_s = c_s (r_c/r_s)^2 exp (3/2- \frac{GM}{c_s^2r_s} ) for yita = 1.0, 
+        r_c = GM / (2 c_s^2), r_s = r
     Args:
         T (float):  Temperature in K.
         parameter (MagmaOceanParameters): Parameters, use r and M_tot
@@ -127,26 +129,51 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
     Returns:
         u_s (float) :  the surface outflow velocity.
     """
-    yita_factor = (yita - 1)/(3 * yita - 1)
     c_s = isothermal_sound_speed (T, parameter.M_mol)
     c_sq2 = c_s ** 2 * parameter.r
-    GM = G * parameter.M_tot
-    first_part = (yita_factor*((yita / (yita - 1))-(GM / c_sq2))) ** yita_factor if (yita / (yita - 1))-(GM / c_sq2) > 0 else 0
-    second_part = (GM / (4 * c_sq2)) ** (4 * yita_factor)
-    third_part = (2 / yita) ** ( 2 / (yita - 1 ))
-    u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
+    if yita != 1.0:
+        yita_factor = (yita - 1)/(3 * yita - 1)
+        GM = G * parameter.M_tot
+        first_part = (yita_factor*((yita / (yita - 1))-(GM / c_sq2))) ** yita_factor if (yita / (yita - 1))-(GM / c_sq2) > 0 else 0
+        second_part = (GM / (4 * c_sq2)) ** (4 * yita_factor)
+        third_part = (2 / yita) ** ( 2 / (yita - 1 ))
+        u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
+    else:
+        r_c = G * parameter.M_tot / (2 * c_s ** 2)
+        r_s = parameter.r
+        u_s = c_s * (r_c / r_s) ** 2 * math.exp(3/2 - G * parameter.M_tot / (c_s ** 2 * r_s))
     return u_s
 
-def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2):
+def Jeans_escape_pMpt (T: float, parameter: MagmaOceanParameters):
+    r"""
+    (\frac{dM}{dt})_J = n * m * \sqrt{\frac{RT}{2\pi m}} * (1 + \lambda_J) * exp(-\lambda_J) * 4 \pi r^2 in kg s-1,
+    where n is the number density at the surface, k is the Boltzmann constant, T is the temperature, m is the molar mass in kg/mol, r is the radius of the planet.
+    n = rho_s / m is the number density in mol m-3. rho_s is the surface density of the atmosphere in kg m-3, m is the molar mass in kg/mol.
+    lambda_J = GMm/RTr, where G is the gravitational constant, M is the mass of the planet, m is the molar mass in kg/mol, R is the gas constant, T is the temperature.
+    """
+    n = rho_surface_from_T (T, parameter.M_mol) / parameter.M_mol # in mol m-3
+    lambda_J = G * parameter.M_tot * parameter.M_mol / (R_gas * T * parameter.r) # dimensionless
+    escape_fraction = (1 + lambda_J) * math.exp(-lambda_J)
+    return n * parameter.M_mol * math.sqrt(R_gas * T / (2 * math.pi * parameter.M_mol)) * escape_fraction * 4 * math.pi * parameter.r ** 2 # in kg s-1
+
+
+def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2, Jeans_only = False, hyrodynamic_only = True) -> float:
+    if Jeans_only:
+        return Jeans_escape_pMpt (T, parameter)
     r = parameter.r
     rho_s = rho_surface_from_T (T, parameter.M_mol)
     u_s = surface_outflow_velocity (T, parameter, yita)
-    return 2 * math.pi * r ** 2 * rho_s * u_s
+    lambda_J = G * parameter.M_tot * parameter.M_mol / (R_gas * T * parameter.r) # dimensionless
+    use_jeans = (lambda_J > 3 ) if yita ==1.0 else (u_s == 0.0)
+    if use_jeans and not hyrodynamic_only:
+        return Jeans_escape_pMpt (T, parameter)
+    else:
+        return rho_s * u_s * 4 * math.pi * r ** 2
 
 def black_body_flux (T_s: float, r: float, sb_factor:float=1.0) -> float:
     return sb_factor * Stefan_Boltzmann * T_s ** 4 * (4 * math.pi * r **2)
 
-def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2):
+def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2, hyrodynamic_only: bool=True) -> float:
     """
     Calculate the cooling rate of the magma ocean/ pool.
 
@@ -192,7 +219,12 @@ def step_concentration (T: float, M_l: float, Mass_loss_step:float,version_D: st
     C_step_factor = M_l / (M_l + Mass_loss_step * (D - 1))
     return C_step_factor
 
-def devoltilization(T_init: float, M_l_init: float, params: MagmaOceanParameters, dT: float=5e-4, T_end: float=1200, final_only: bool=True) -> tuple:
+def devoltilization(T_init: float, M_l_init: float, 
+                    params: MagmaOceanParameters, dT: float=5e-4, 
+                    T_end: float=1200,
+                    yita: float=1.2,
+                    hydrodynamic_only: bool=True,
+                    final_only: bool=True) -> tuple:
     r""" Simulate the devolatilization process of the magma ocean from initial temperature T_init and initial mass M_l_init.
     Args:
         T_init (float): Initial temperature in K.
@@ -206,6 +238,9 @@ def devoltilization(T_init: float, M_l_init: float, params: MagmaOceanParameters
         C_final (float): Final concentration ratio of the volatile in the magma ocean.
     """
     T = T_init
+    if T_init > 10000:
+        print(f"Warning: T_init {T_init}K is too high, reset it to 10000K.")
+        T = 10000
     M_l = M_l_init
     if M_l_init <= 0:
         if final_only:
@@ -224,12 +259,12 @@ def devoltilization(T_init: float, M_l_init: float, params: MagmaOceanParameters
         t_total_array.append(float(t_total))
         M_loss_array.append(float(M_loss_total))
         C_array.append(float(C))
-    while T > 1200:
-        cooling_rate = float(pTpt(T, M_l, params))
+    while T > T_end and M_l > 0:
+        cooling_rate = float(pTpt(T, M_l, params, yita=yita, hyrodynamic_only=hydrodynamic_only))   
         T_decrease = dT * T
         Dt = T_decrease / cooling_rate
         t_total += Dt
-        M_loss_step = float(pMpt(T,params) * Dt)
+        M_loss_step = float(pMpt(T,params,hyrodynamic_only=hydrodynamic_only,yita=yita) * Dt)
         M_loss_total += M_loss_step
         C *= float(step_concentration (T, M_l, M_loss_step))
         M_l -= M_loss_step
@@ -239,8 +274,6 @@ def devoltilization(T_init: float, M_l_init: float, params: MagmaOceanParameters
             t_total_array.append(t_total)
             M_loss_array.append(M_loss_total)
             C_array.append(C)
-        if M_l <= 0:
-            break
     if final_only:
         return T, t_total, M_loss_total, C
     else:
@@ -464,6 +497,171 @@ def vi_effect_blackbody():
         ax.set_title('r = '+format_float(r,significant_digits=2,max_decimal_places=1)+' m')
     plt.tight_layout()
     plt.savefig('effect_blackbody_radius.pdf')
+
+def benchmark_binary_and_newton():
+    # 测试T_s_from_T的二分法和牛顿法的计算速度
+    import time
+    T_values = np.linspace(1200, 8000, 10000)
+    Results_binary = np.zeros_like(T_values)
+    Results_newton = np.zeros_like(T_values)
+    params = MagmaOceanParameters()
+    start_time = time.time()
+    for i, T in enumerate(T_values):
+        Results_binary[i] = T_s_from_T(T, params, newton=False)
+    binary_time = time.time() - start_time
+    start_time = time.time()
+    for i, T in enumerate(T_values):
+        Results_newton[i] = T_s_from_T(T, params, newton=True)
+    newton_time = time.time() - start_time
+    print(f'Binary search time: {binary_time:.4f} seconds')
+    print(f'Newton method time: {newton_time:.4f} seconds')
+    # plot the results to show the difference between the two methods
+    import matplotlib.pyplot as plt
+    plt.plot(T_values, Results_binary - Results_newton, label='Binary - Newton')
+    plt.xlabel('Average Temperature T (K)')
+    plt.ylabel('Difference in Surface Temperature T_s (K)')
+    plt.title('Difference between Binary Search and Newton Method for T_s_from_T')
+    plt.legend()
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.savefig('benchmark_binary_newton.pdf')
+
+def vi_pMpt():
+    # 测试yita=1.4, 1.2, 1.0和仅考虑Jeans escape的pMpt随温度变化的情况对比。
+    # T from 1200K to 4000K, rho_B = 3500 kg m-3, M_mol = 0.04 kg mol-1.
+    # test different r in different color, different line style for different yita and Jeans escape.
+    # r in Vesta size, Moon size, Mars size, and 1.5 Mars size.
+    import matplotlib.pyplot as plt
+    T_values = np.linspace(1000, 5000, 100)
+    r_labels = {
+        'Vesta': 2.6e5,
+        'Moon': 1.7e6,
+        'Mars': 3.4e6,
+    }
+    color_map = ['C0', 'C1', 'C2', 'C3']
+    for index, (label, r) in enumerate(r_labels.items()):
+        params = MagmaOceanParameters(r=r)
+        pMpt_yita_1_4 = np.array([pMpt(T, params, yita=1.4) for T in T_values])
+        pMpt_yita_1_2 = np.array([pMpt(T, params, yita=1.2) for T in T_values])
+        pMpt_yita_1_0 = np.array([pMpt(T, params, yita=1.0) for T in T_values])
+        pMpt_Jeans = np.array([pMpt(T, params, Jeans_only=True) for T in T_values])
+        plt.plot(T_values, pMpt_yita_1_4, label=label+', '+r'$\gamma=1.4$', color=color_map[index], linestyle='-.')
+        plt.plot(T_values, pMpt_yita_1_2, label=label+', '+r'$\gamma=1.2$', color=color_map[index], linestyle='-')
+        plt.plot(T_values, pMpt_yita_1_0, label=label+', '+r'$\gamma=1.0$', color=color_map[index], linestyle='--')
+        plt.plot(T_values, pMpt_Jeans, label=label+', Jeans', color=color_map[index], linestyle=':')
+    plt.yscale('log')
+    plt.xlabel('Temperature (K)')
+    plt.ylabel(r'Mass Loss Rate $\dot{M}$ (kg s$^{-1}$)')
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    # custom legend to show the line styles for yita and Jeans escape
+    # list the lines in a table-like legend, each row is a different r, each column is a different yita or Jeans escape.
+    # the table title in each column is yita=1.2, yita=1.0, Jeans escape. and in each row is Vesta, Moon, Mars, 1.5 Mars.
+    from matplotlib.lines import Line2D
+    line_styles = ['-.','-', '--', ':']
+    column_labels = [r'$\gamma=1.4$',r'$\gamma=1.2$', r'$\gamma=1.0$', 'Jeans']
+    row_labels = list(r_labels.keys())
+    n_rows = len(row_labels)
+    n_cols = len(line_styles)
+
+    # 1. 构造原始矩阵 (n_rows x n_cols)
+    # 每一行代表一个行星，每一列代表一种模型
+    handle_matrix = []
+    for r_idx, label in enumerate(row_labels):
+        row_handles = []
+        for ls in line_styles:
+            line = Line2D([0], [0], color=color_map[r_idx], linestyle=ls)
+            row_handles.append(line)
+        handle_matrix.append(row_handles)
+
+    # 2. 关键：将矩阵“展平”为 Matplotlib 纵向填充所需的顺序
+    # Matplotlib 在 ncol=3 时，会先填满第 1 列的所有行，再填第 2 列...
+    # 所以我们需要按列读取：[R1C1, R2C1, R3C1, R4C1, R1C2, R2C2, ...]
+    flat_handles = []
+    for c in range(n_cols):
+        for r in range(n_rows):
+            flat_handles.append(handle_matrix[r][c])
+
+    # 3. 构造对应的标签列表（同样需要匹配纵向顺序）
+    # 只有在最后一列（c=2）的时候才显示行星名字
+    flat_labels = []
+    for c in range(n_cols):
+        for r in range(n_rows):
+            if c == n_cols - 1: # 最后一列
+                flat_labels.append(row_labels[r])
+            else:
+                flat_labels.append('')
+
+    # 4. 绘制图例
+    legend = plt.legend(flat_handles, flat_labels, 
+                        ncol=n_cols, loc='lower right', frameon=False,
+                        columnspacing=1.5, handletextpad=0.5)
+
+    # 5. 获取 Handle 坐标并放置列标题
+    plt.draw()
+    inv = plt.gca().transData.inverted()
+    
+    header_indices = [0, n_rows, 2 * n_rows, 3 * n_rows]
+    
+    for i, idx in enumerate(header_indices):
+        # 获取该 handle 的像素位置并转为数据坐标
+        bbox_pixel = legend.legend_handles[idx].get_window_extent() # type: ignore
+        bbox_data = inv.transform(bbox_pixel)
+        
+        x_center = (bbox_data[0][0] + bbox_data[1][0]) / 2
+        legend_bbox = inv.transform(legend.get_window_extent())
+        y_top = legend_bbox[1][1]
+        
+        plt.text(x_center, y_top, column_labels[i], 
+                 ha='center', va='bottom')
+    plt.savefig('pMpt_comparison.pdf')
+
+def test_cooling_with_jeans():
+    """
+    For an r=1e6 m planet, compare the evoluations of T, C, and M_loss with time by only considering hydrodynamic or take Jeans escape into account.
+    T_int = 3000K, M_l = 0.7 * M_tot, other parameters are default. Plot the evolutions of T, C, and M_loss with time in a log scale.
+    T, C, M_loss/M_tot plot in different subfigures, and in each subfig, the hydrodynamic only and Jeans escape cases use different color, and yita=1.2 and 1.0 for different line styles.
+    """
+    import matplotlib.pyplot as plt
+    T_init = 2500
+    params = MagmaOceanParameters(r=1.7e6)
+    plt.figure(figsize=(18,5))
+    # set subplot
+    ax_T = plt.subplot(1,3,1)
+    ax_C = plt.subplot(1,3,2)
+    ax_M_loss = plt.subplot(1,3,3)
+    data_dict = {}
+    for hyrodynamic_only in [True, False]:
+        for yita in [1.2, 1.0]:
+            T_array, t_total_array, M_loss_array, C_array = devoltilization(T_init, params.M_tot * 0.7 * 0.3, params, final_only=False, yita=yita, hydrodynamic_only=hyrodynamic_only)
+            data_dict[(hyrodynamic_only, yita)] = (T_array, t_total_array, np.array(M_loss_array)/(params.M_tot * 0.7 * 0.3), C_array)
+    # plot T, C, M_loss/M_tot in different subfigures
+    for i, key in enumerate(data_dict.keys()):
+        hyrodynamic_only, yita = key
+        T_array, t_total_array, M_loss_array, C_array = data_dict[key]
+        label = r'$\gamma$='+format_float(yita)
+        label += '' if hyrodynamic_only else ' with Jeans escape'
+        ax_T.plot(np.array(t_total_array)/365.25/24/3600, T_array, label=label, color='C0' if yita==1.2 else 'C1', linestyle ='-' if hyrodynamic_only else '--')
+        ax_C.plot(np.array(t_total_array)/365.25/24/3600, C_array, label=label, color='C0' if yita==1.2 else 'C1', linestyle ='-' if hyrodynamic_only else '--')
+        ax_M_loss.plot(np.array(t_total_array)/365.25/24/3600, M_loss_array, label=label, color='C0' if yita==1.2 else 'C1', linestyle ='-' if hyrodynamic_only else '--')
+    ax_T.set_xscale('log')
+    ax_T.set_xlabel('Time (year)')
+    ax_T.set_ylabel('Temperature (K)')
+    ax_T.legend()
+    ax_T.grid(color='white', linestyle='--', linewidth=0.5)
+    ax_C.set_xscale('log')
+    ax_C.set_xlabel('Time (year)')
+    ax_C.set_ylabel('Concentration Ratio')
+    #ax_C.legend()
+    ax_C.grid(color='white', linestyle='--', linewidth=0.5)
+    ax_M_loss.set_xscale('log')
+    ax_M_loss.set_xlabel('Time (year)')
+    ax_M_loss.set_ylabel(r'Mass Loss / Total Mass')
+    #ax_M_loss.legend()
+    ax_M_loss.grid(color='white', linestyle='--', linewidth=0.5)
+    # put an r = 1.7e6 m label in the second subfig
+    ax_C.text(0.15, 0.15, 'r=' + format_float(params.r, significant_digits=2, max_decimal_places=1)+' m', transform=ax_C.transAxes, fontsize=12)
+    plt.tight_layout()
+    plt.savefig('cooling_with_jeans.pdf')
+
 
 if __name__ == "__main__":
     #main()
