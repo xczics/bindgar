@@ -19,6 +19,7 @@ class MagmaOceanParameters:
     L: float = 5e6 # Latent Heat of vapourization, J kg-1
     M_mol: float = 0.04 # Molar Mass of the Atmosphere, kg mol-1
     sb_factor: float = 1.0 # Black body radiation factor, dimensionless
+    sigma: float = 3e-19 # Mean cross section of the molecular of SiO, in m2.
     def __post_init__(self):
         if self.g_s is None:
             self.g_s = (4/3) * math.pi * G * self.rho_B * self.r # m s-2
@@ -79,7 +80,7 @@ def T_s_from_T (T: float, parameter: MagmaOceanParameters, threshold: float = 1e
             T_s_guess -= (T_from_T_s(T_s_guess, parameter) - T) / T_from_T_s(T_s_guess, parameter, diff=True)
         return T_s_guess
 
-def vapour_pressure(T: float) -> float:
+def vapour_pressure_from_Hin(T: float) -> float:
     r""" Calculate the vapour pressure by empirical expression obtained from thermodynamic liquid-vapour model.
     Ref to Hin et al. 2017.
     lnP = -4.0041 (lnT)^3 + 88.788 (lnT)^2 - 639.3 lnT + 1480.23
@@ -94,6 +95,13 @@ def vapour_pressure(T: float) -> float:
     P_bar = math.exp(lnP)
     return P_bar * 1e5  # Convert bar to Pa
 
+def vapour_pressure_from_Calogero(T: float) -> float:
+    #logT = math.log10(T)
+    logT = math.log(T)
+    return 1e5 * math.exp(-4.0041*logT**3 + 88.7878*logT**2 - 639.302*logT + 1480.23)
+
+def vapour_pressure(T: float) -> float:
+    return vapour_pressure_from_Hin(T)
 
 def rho_surface_from_T (T: float, M_mol: float) -> float:
     r""" Calculate the surface density of the atmosphere from the temperature.
@@ -130,12 +138,12 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
         u_s (float) :  the surface outflow velocity.
     """
     c_s = isothermal_sound_speed (T, parameter.M_mol)
-    c_sq2 = c_s ** 2 * parameter.r
+    c_s2r = c_s ** 2 * parameter.r
     if yita != 1.0:
         yita_factor = (yita - 1)/(3 * yita - 1)
         GM = G * parameter.M_tot
-        first_part = (yita_factor*((yita / (yita - 1))-(GM / c_sq2))) ** yita_factor if (yita / (yita - 1))-(GM / c_sq2) > 0 else 0
-        second_part = (GM / (4 * c_sq2)) ** (4 * yita_factor)
+        first_part = (yita_factor*((yita / (yita - 1))-(GM / c_s2r))) ** (1 / yita_factor) if (yita / (yita - 1))-(GM / c_s2r) > 0 else 0
+        second_part = (GM / (4 * c_s2r)) ** (4 * yita_factor)
         third_part = (2 / yita) ** ( 2 / (yita - 1 ))
         u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
     else:
@@ -144,29 +152,139 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
         u_s = c_s * (r_c / r_s) ** 2 * math.exp(3/2 - G * parameter.M_tot / (c_s ** 2 * r_s))
     return u_s
 
-def Jeans_escape_pMpt (T: float, parameter: MagmaOceanParameters):
+def Jeans_escape_pMpt_ref (T: float, parameter: MagmaOceanParameters) -> float:
     r"""
-    (\frac{dM}{dt})_J = n * m * \sqrt{\frac{RT}{2\pi m}} * (1 + \lambda_J) * exp(-\lambda_J) * 4 \pi r^2 in kg s-1,
+    (\frac{dM}{dt})_J = \rho * \sqrt{\frac{RT}{2\pi m}} * (1 + \lambda_J) * exp(-\lambda_J) * 4 \pi r^2 in kg s-1,
     where n is the number density at the surface, k is the Boltzmann constant, T is the temperature, m is the molar mass in kg/mol, r is the radius of the planet.
     n = rho_s / m is the number density in mol m-3. rho_s is the surface density of the atmosphere in kg m-3, m is the molar mass in kg/mol.
     lambda_J = GMm/RTr, where G is the gravitational constant, M is the mass of the planet, m is the molar mass in kg/mol, R is the gas constant, T is the temperature.
+
     """
-    n = rho_surface_from_T (T, parameter.M_mol) / parameter.M_mol # in mol m-3
     lambda_J = G * parameter.M_tot * parameter.M_mol / (R_gas * T * parameter.r) # dimensionless
     escape_fraction = (1 + lambda_J) * math.exp(-lambda_J)
-    return n * parameter.M_mol * math.sqrt(R_gas * T / (2 * math.pi * parameter.M_mol)) * escape_fraction * 4 * math.pi * parameter.r ** 2 # in kg s-1
+    return rho_surface_from_T (T, parameter.M_mol) * parameter.M_mol * math.sqrt(R_gas * T / (2 * math.pi * parameter.M_mol)) * escape_fraction * 4 * math.pi * parameter.r ** 2 # in kg s-1
 
+def Jeans_escape_pMpt(T: float, parameter: MagmaOceanParameters, yita: float = 1.2) -> Tuple[float,float]:
+    r"""
+    Calculate the mass loss rate (dM/dt) via Jeans escape based on the exobase criterion.
+    
+    The function accounts for atmospheric structure using two models:
+    1. Polytropic model (yita > 1.0): P = C * rho^yita, where temperature decreases linearly 
+       with altitude.
+    2. Isothermal model (yita = 1.0): T(z) = T_surface, where density decays exponentially.
+    
+    Key Formulas:
+    - Exobase altitude (z_ex) criterion: \int_{z_ex}^{\infty} n(z) \sigma dz = 1
+        - Polytropic: z_ex = H_poly * [1 - (m / (sigma * rho_s * H_poly) * (yita/(yita-1)))^((yita-1)/yita)]
+        - Isothermal: z_ex = H * ln(sigma * rho_s * H / m)
+    - Jeans Parameter: \lambda_J = GMm / (k * T_ex * r_ex)
+    - Mass Flux: \Phi_J = \rho_ex * \sqrt{RT_ex / 2\pi m} * (1 + \lambda_J) * exp(-\lambda_J)
+    - Total Loss Rate: dM/dt = \Phi_J * 4\pi * r_ex^2
+    
+    Args:
+        T (float): Surface temperature in Kelvin (K).
+        parameter (MagmaOceanParameters): Object containing planetary constants (r, M_tot, g_s) 
+            and molecular properties (M_mol, sigma).
+        yita (float): Polytropic index (gamma). Defaults to 1.2 (convective/adiabatic). 
+            Set to 1.0 for an isothermal atmosphere.
+            
+    Returns:
+        float: Total mass escape rate (dM/dt) in kg s-1. Returns 0.0 if the atmosphere 
+            is gravitationally bound or physically truncated.
+    """
+    # Physical Constants
+    G = 6.67430e-11 # in m3 kg-1 s-2
+    R_gas = 8.31446 # in J mol-1 K-1
+    NA = 6.02214076e23 # in mol-1
+    
+    m_mol = parameter.M_mol            # Molar mass (kg/mol)
+    m_molecule = m_mol / NA            # Mass of a single molecule (kg)
+    r_s = parameter.r                  # Surface radius (m)
+    M_p = parameter.M_tot              # Planet mass (kg)
+    sigma = parameter.sigma            # Collision cross-section (m2)
+    g_s = parameter.g_s                # Surface gravity (m/s2)
+    assert g_s is not None, "This assert is written for the type checker."
+
+    # 1. Surface density rho_s (kg/m3) from the provided helper function
+    rho_s = rho_surface_from_T(T, m_mol)
+    if rho_s <= 0:
+        return 700.0, 0.0
+
+    # 2. Scale height H = RT/mg at the surface (m)
+    H = (R_gas * T) / (m_mol * g_s)
+
+    # 3. Determine Exobase Altitude (z_ex) and Temperature (T_ex)
+    if abs(yita - 1.0) < 1e-6:
+        # --- Isothermal Case ---
+        T_ex = T
+        # Criterion: n_s * sigma * H * exp(-z/H) = 1
+        # term represents the optical depth at the surface
+        term = (rho_s * sigma * H) / m_molecule
+        z_ex = H * math.log(term) if term > 1.0 else 0.0
+    else:
+        # --- Polytropic Case ---
+        gamma_fac = yita / (yita - 1.0)
+        H_poly = H * gamma_fac  # Theoretical maximum altitude where T=0
+        
+        # Dimensionless term for solving the integral of column density
+        term = (m_molecule / (sigma * rho_s * H_poly)) * gamma_fac
+        if term >= 1.0:
+            # Atmosphere is so thin that the exobase is at the surface
+            z_ex = 0.0
+        else:
+            z_ex = H_poly * (1.0 - term**((yita - 1.0) / yita))
+        
+        # Temperature at exobase: T_ex = T_s * (1 - z/H_poly)
+        T_ex = T * (1.0 - z_ex / H_poly)
+
+    # 4. Physical Sanity Checks
+    if T_ex <= 0:
+        return 700.0, 0.0
+    
+    r_ex = r_s + z_ex
+    
+    # 5. Density at Exobase (rho_ex)
+    if abs(yita - 1.0) < 1e-6:
+        rho_ex = rho_s * math.exp(-z_ex / H)
+    else:
+        rho_ex = rho_s * (T_ex / T)**(1.0 / (yita - 1.0))
+
+    # 6. Jeans Escape Calculation
+    # Escape parameter lambda_J (Dimensionless ratio of potential to thermal energy)
+    lambda_J = (G * M_p * m_mol) / (R_gas * T_ex * r_ex)
+    
+    # Thermal velocity component (m/s)
+    v_th = math.sqrt((R_gas * T_ex) / (2.0 * math.pi * m_mol))
+    
+    # Mass Flux Phi_J (kg m-2 s-1)
+    # Using try-except to handle underflow for heavy molecules like SiO
+    try:
+        if lambda_J > 700: # Typical limit for math.exp()
+            return lambda_J, 0.0
+        Phi_J = rho_ex * v_th * (1.0 + lambda_J) * math.exp(-lambda_J)
+    except OverflowError:
+        # This would only happen if lambda_J was a large negative number
+        return lambda_J, 0.0
+    except ValueError:
+        # Handles cases where T_ex or other terms might be NaN/Inf
+        return lambda_J, 0.0
+    
+    # Total mass loss rate integrated over the exobase sphere
+    dMdt = Phi_J * 4.0 * math.pi * (r_ex**2)
+    
+    return lambda_J, dMdt
 
 def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2, Jeans_only = False, hyrodynamic_only = True) -> float:
     if Jeans_only:
-        return Jeans_escape_pMpt (T, parameter)
+        #return Jeans_escape_pMpt_ref (T, parameter)
+        return Jeans_escape_pMpt (T, parameter,yita=yita)[1]
+    lambda_J, pMpt_Jeans = Jeans_escape_pMpt (T, parameter, yita)
     r = parameter.r
     rho_s = rho_surface_from_T (T, parameter.M_mol)
     u_s = surface_outflow_velocity (T, parameter, yita)
-    lambda_J = G * parameter.M_tot * parameter.M_mol / (R_gas * T * parameter.r) # dimensionless
     use_jeans = (lambda_J > 3 ) if yita ==1.0 else (u_s == 0.0)
     if use_jeans and not hyrodynamic_only:
-        return Jeans_escape_pMpt (T, parameter)
+        return pMpt_Jeans
     else:
         return rho_s * u_s * 4 * math.pi * r ** 2
 
@@ -186,7 +304,8 @@ def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2
     Return: float, the cooling rate of the magma ocean.
 
     """
-    F_black = black_body_flux ( T_s = T_s_from_T (T, parameter),r = parameter.r, sb_factor=parameter.sb_factor)
+    T_s = T_s_from_T (T, parameter)
+    F_black = black_body_flux ( T_s = T_s,r = parameter.r, sb_factor=parameter.sb_factor)
     Heat_capacity = M_l * parameter.C_p
     GM = G * parameter.M_tot
     if parameter.M_tot > parameter.M_critical(T):
@@ -397,7 +516,10 @@ def vi_vapour_pressure():
     import matplotlib.pyplot as plt
     T = np.linspace(1200, 4000, 100)
     P = np.array([vapour_pressure(t) for t in T])
-    plt.plot(T, P/1e5)
+    P_eq2 = np.array([vapour_pressure_from_Calogero(t) for t in T])
+    plt.plot(T, P/1e5,label='Hin et al. 2017')
+    plt.plot(T, P_eq2/1e5, '--', label ='Eq. 2')
+    plt.legend()
     plt.yscale('log')
     plt.xlabel('Temperature (K)')
     plt.ylabel('Vapour Pressure (bar)')
@@ -415,9 +537,9 @@ def vi_M_critical():
     }
     for label, params in parameter_sets.items():
         M_critical_values = np.array([params.M_critical(t) for t in T])
-        plt.plot(M_critical_values/M_EARTH, T, label=label)
+        plt.plot(M_critical_values, T, label=label)
     plt.ylabel('Temperature (K)')
-    plt.xlabel(r'Critical Mass ($M_{earth}$)')
+    plt.xlabel(r'Critical Mass (kg)')
     plt.xscale('log')
     # legend at left-top corner
     plt.legend(loc='upper left')
@@ -549,6 +671,7 @@ def vi_pMpt():
         plt.plot(T_values, pMpt_yita_1_0, label=label+', '+r'$\gamma=1.0$', color=color_map[index], linestyle='--')
         plt.plot(T_values, pMpt_Jeans, label=label+', Jeans', color=color_map[index], linestyle=':')
     plt.yscale('log')
+    plt.ylim(1e-20, 1e20)
     plt.xlabel('Temperature (K)')
     plt.ylabel(r'Mass Loss Rate $\dot{M}$ (kg s$^{-1}$)')
     plt.grid(color='grey', linestyle='--', linewidth=0.5)
@@ -661,6 +784,68 @@ def test_cooling_with_jeans():
     ax_C.text(0.15, 0.15, 'r=' + format_float(params.r, significant_digits=2, max_decimal_places=1)+' m', transform=ax_C.transAxes, fontsize=12)
     plt.tight_layout()
     plt.savefig('cooling_with_jeans.pdf')
+
+def figure_Calogero_2025_figure2_ac():
+    """
+    Reproduce the figure 2a to 2c in Calogero et al. (2025).
+    The x-axis is the M_total, from 10^21 - 10^23 kg in log scale.
+    The y-axis is cooling time, body mass fraction loss, and K fraction lost.
+    They assume the total mantle (0.7*M_total) is molten, 
+        and the initial temperature is set as 1500, 2000, 2500, 3000, 3500 K.
+        Their final temperature is set as 1400 K.
+    """
+    import matplotlib.pyplot as plt
+    M_total_values = np.logspace(21, 24, 40)
+    T_inits = [1500, 2000, 2500, 3000, 3500]
+    cooling_times = np.zeros((len(T_inits), len(M_total_values)))
+    mass_loss_fractions = np.zeros_like(cooling_times)
+    K_loss_fractions = np.zeros_like(cooling_times)
+
+    # convert M_total to radius and M_l.
+    radius_values = (3 * M_total_values / (4 * math.pi * 3500)) ** (1/3)
+    M_l = 0.7 * M_total_values
+
+    for i, radius_values in enumerate(radius_values):
+        params = MagmaOceanParameters(r=radius_values)
+        for j, T_init in enumerate(T_inits):
+            _, cooling_time, mass_loss, C_final = devoltilization(T_init, M_l[i], params, final_only=True, T_end=1400, yita=1.2)
+            cooling_times[j,i] = cooling_time / 365.25/24/3600
+            mass_loss_fractions[j,i] = mass_loss / M_total_values[i]
+            K_loss_fractions[j,i] = 1 - C_final
+    # plot the results in three subfigures
+    plt.figure(figsize=(18,5))
+    plt.subplot(1,3,1)
+    for i, T_init in enumerate(T_inits):
+        plt.plot(M_total_values, cooling_times[i,:], label=r'$T_{init}$='+f'{T_init}K')
+    plt.xlim(1e21, 1.33e23)
+    plt.ylim(0, 2000)
+    plt.xscale('log')
+    plt.xlabel(r'Total Mass $M_{total}$ (kg)')
+    plt.ylabel('Cooling Time (year)')
+    plt.legend()
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.subplot(1,3,2)
+    for i, T_init in enumerate(T_inits):
+        plt.plot(M_total_values, mass_loss_fractions[i,:], label=r'$T_{init}$='+f'{T_init}K')
+    plt.xscale('log')
+    plt.xlim(1e21, 1.33e23)
+    plt.ylim(0,0.25)
+    plt.xlabel(r'Total Mass $M_{total}$ (kg)')
+    plt.ylabel('Mass Loss Fraction')
+    plt.legend()
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.subplot(1,3,3)
+    for i, T_init in enumerate(T_inits):
+        plt.plot(M_total_values, K_loss_fractions[i,:], label=r'$T_{init}$='+f'{T_init}K')
+    plt.xscale('log')
+    plt.xlim(1e21, 1.33e23)
+    plt.ylim(0,1)
+    plt.xlabel(r'Total Mass $M_{total}$ (kg)')
+    plt.ylabel('K Loss Fraction')
+    plt.legend()
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    plt.savefig('Calogero_2025_figure2_ac.pdf')
 
 
 if __name__ == "__main__":

@@ -1160,27 +1160,16 @@ if __name__ == "__main__":
     # main()
     # test_magma_model()
     # boundary_magma_model(draw_directly=True)
-    f_T_C_m_contour(draw_directly=True,
-                    gamma_angle_list=[
-
-                                      (0.5, 30),
-                                      (0.5, 90),
-                    ])
-    bug = [                           (0.01, 30),
-                                      (0.01, 45), 
-                                      (0.01, 90),
+    bug = [                           (0.01, 0),
                                       (0.03, 0),
-                                      (0.03, 30),
-                                      (0.03, 60),
                                       (0.1, 0),
-                                      (0.1, 30),
-                                      (0.1, 45),
-                                      (0.1, 60),
-                                      (0.1, 90),
                                       (0.2, 0),
-                                      (0.2, 30),
-                                      (0.2, 90),
                                       (0.5, 0),
                                       (0.5, 30),
                                       (0.5, 45),
                                       ]
+    gamma_list = [0.01, 0.03, 0.1, 0.2, 0.5]
+    angle_list = [0, 30, 45, 60, 90]
+    f_T_C_m_contour(draw_directly=True,
+                    # gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list])
+                    gamma_angle_list=bug)
