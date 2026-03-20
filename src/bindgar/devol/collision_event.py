@@ -771,7 +771,9 @@ def boundary_magma_model(draw_directly=False) -> Any:
 def f_T_C_m_contour(draw_directly: bool=False,
                             gamma: float = 0.1,
                             impact_angle: int= 30,
-                            gamma_angle_list = None,
+                            gamma_angle_list: List[Tuple]|None = None,
+                            figure_file_name: str|None = None,
+                            in_kg: bool = False,
                             ) -> Any:
     """
     A parameter test for `CollisionResult`. It will generate the data
@@ -797,24 +799,37 @@ def f_T_C_m_contour(draw_directly: bool=False,
     MAX_M = 40
     MIN_V = 0.3
     MAX_V = 9
+    MIN_M_Lower = 0.0015
+    MAX_M_Lower = 0.3
     M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 80)
     v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 80)
+    M_array_lower = np.logspace(np.log10(MIN_M_Lower), np.log10(MAX_M_Lower), 80)
     M_grid, v_grid = np.meshgrid(M_array, v_array, indexing='ij')
+    M_grid_lower, v_grid_lower = np.meshgrid(M_array_lower, v_array, indexing='ij')
     contor_titles = {
         "melt_fraction": r"$f_{melt}$",
         "peak_temperature": r"$T_{peak}$ (K)",
         "C": r"$C/C_{0}$",
         "M_loss": r"$M_{loss}/M_{melt}$",
     }
-    def calculate_contour(gamma_value: float, impact_angle_value: int) -> Dict[str, np.ndarray]:
-        melt_fraction_array = np.zeros(M_grid.shape)
-        peak_temperature_array = np.zeros(M_grid.shape)
-        C_array = np.zeros(M_grid.shape)
-        M_loss_array = np.zeros(M_grid.shape)
+    def calculate_contour(gamma_value: float, impact_angle_value: int, lower=False) -> Dict[str, np.ndarray]:
+        if not lower:
+            melt_fraction_array = np.zeros(M_grid.shape)
+            peak_temperature_array = np.zeros(M_grid.shape)
+            C_array = np.zeros(M_grid.shape)
+            M_loss_array = np.zeros(M_grid.shape)
+        else:
+            melt_fraction_array = np.zeros(M_grid_lower.shape)
+            peak_temperature_array = np.zeros(M_grid_lower.shape)
+            C_array = np.zeros(M_grid_lower.shape)
+            M_loss_array = np.zeros(M_grid_lower.shape)
         for i in range(M_grid.shape[0]):
             for j in range(M_grid.shape[1]):
                 #print(i,j)
-                M = M_grid[i,j]
+                if not lower:
+                    M = M_grid[i,j]
+                else:
+                    M = M_grid_lower[i,j]
                 v = v_grid[i,j]
                 collision_result = CollisionEvent.from_parameter(M_total=M, gamma=gamma_value, vel_escape_ratio=v, impact_angle=impact_angle_value)
                 try:
@@ -829,7 +844,7 @@ def f_T_C_m_contour(draw_directly: bool=False,
                     C_array[i,j] = np.nan
                     M_loss_array[i,j] = np.nan
                     # in test mode, raise the error to see where the problem is.
-                    raise e
+                    print(e)
         return {
             "melt_fraction": melt_fraction_array,
             "peak_temperature": peak_temperature_array,
@@ -843,16 +858,25 @@ def f_T_C_m_contour(draw_directly: bool=False,
         is_one_pair = False
     MT_Datas = []
     dir_this_file = os.path.dirname(os.path.abspath(__file__))
-    for index, (gamma_value, impact_angle_value) in enumerate(gamma_angle_list):
+    for index, angle_and_list in enumerate(gamma_angle_list):
+        if len(angle_and_list) > 2:
+            gamma_value, impact_angle_value, lower = angle_and_list
+        else:
+            assert len(angle_and_list) == 2, "For type echecker"
+            gamma_value, impact_angle_value = angle_and_list
+            lower = False
         if not any(np.isclose(gamma_value, valid_gamma, atol=1e-6) for valid_gamma in [0.01, 0.03, 0.1, 0.2, 0.5]):
             raise ValueError(f"Gamma should be one of [0.01, 0.03, 0.1, 0.2, 0.5], but got {gamma}.")
         if impact_angle_value not in [0, 30, 45, 60, 90]:
             raise ValueError(f"Impact angle should be one of [0, 30, 45, 60, 90] degree, but got {impact_angle}.")
-        cache_file_name = os.path.join(dir_this_file, f"./.cache/magma_model_MT_contour_cache_gamma{gamma_value:.2f}_angle{impact_angle_value:02d}.npy")
+        if not lower:
+            cache_file_name = os.path.join(dir_this_file, f"./.cache/magma_model_MT_contour_cache_gamma{gamma_value:.2f}_angle{impact_angle_value:02d}.npy")
+        else:
+            cache_file_name = os.path.join(dir_this_file, f"./.cache/magma_model_MT_contour_cache_gamma{gamma_value:.2f}_angle{impact_angle_value:02d}_lower.npy")
         if os.path.exists(cache_file_name):
             MT_Data = np.load(cache_file_name, allow_pickle=True).item()
         else:
-            MT_Data = calculate_contour(gamma_value, impact_angle_value)
+            MT_Data = calculate_contour(gamma_value, impact_angle_value, lower=lower)
             np.save(cache_file_name, MT_Data, allow_pickle=True) # type: ignore
         MT_Datas.append(MT_Data)
     def draw_it(ax: Axes,
@@ -862,7 +886,7 @@ def f_T_C_m_contour(draw_directly: bool=False,
                 **contor_kwargs
                 ) -> QuadContourSet:
         assert contour in ["melt_fraction", "peak_temperature", "C", "M_loss"], f"Contor should be one of ['melt_fraction', 'peak_temperature', 'C', 'M_loss'], but got {contour}."
-        assert Mass_unit in ["M_Mars", "M_Earth"], f"Mass_unit should be either 'M_Mars' or 'M_Earth', but got {Mass_unit}."
+        assert Mass_unit in ["M_Mars", "M_Earth", "kg"], f"Mass_unit should be either 'M_Mars' or 'M_Earth', but got {Mass_unit}."
         related_Data = MT_Datas[index]
         contor_data = related_Data[contour]
         if "cmap" in contor_kwargs:
@@ -893,8 +917,14 @@ def f_T_C_m_contour(draw_directly: bool=False,
         if Mass_unit == "M_Earth":
             need_convert_to_earth = True
             M_grid_plot = M_grid.copy() / M_EARTH * M_Mars
+            need_convert_to_kg = False
+        elif Mass_unit == "kg":
+            need_convert_to_kg = True
+            M_grid_plot = M_grid.copy() * M_Mars
+            need_convert_to_earth = False
         else:
             need_convert_to_earth = False
+            need_convert_to_kg = False
             M_grid_plot = M_grid
         # 如果是peak_temperature, 
         if contour == "peak_temperature":
@@ -929,10 +959,14 @@ def f_T_C_m_contour(draw_directly: bool=False,
         ax.set_yticklabels([f'{int(tick)}' for tick in ax.get_yticks()])
         # 忽略minor ticks的标签
         ax.tick_params(which='minor', labelbottom=False, labelleft=False)
-        if not need_convert_to_earth:
-            ax.set_xlabel(r'Total Mass ($M_{Mars}$)')
-        else:
+
+        if need_convert_to_earth:
             ax.set_xlabel(r'Total Mass ($M_{Earth}$)')
+        elif need_convert_to_kg:
+            ax.set_xlabel(r'Total Mass (kg)')
+        else:
+            ax.set_xlabel(r'Total Mass ($M_{Mars}$)')
+            
         ax.set_ylabel(r'Velocity (v/$v_{esc}$)')
         ax.set_title(contor_titles[contour] +
                      " (Gamma = " + format_float(gamma_angle_list[index][0],1,2) +
@@ -967,16 +1001,22 @@ def f_T_C_m_contour(draw_directly: bool=False,
         logical_col_index = index // SUBPLOT_ROWS
         logical_row_index = index % SUBPLOT_ROWS
         #print(logical_row_index, logical_col_index)
+        if in_kg:
+            Mass_unit = "kg"
+        else:
+            Mass_unit = "M_Mars"
         ax_melt_fraction = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+1)
-        draw_it(ax_melt_fraction, index=index, contour="melt_fraction", levels=np.linspace(0, 1, 11))
+        draw_it(ax_melt_fraction, index=index, contour="melt_fraction", levels=np.linspace(0, 1, 11), Mass_unit=Mass_unit)
         ax_peak_temperature = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+2)
-        draw_it(ax_peak_temperature, index=index, contour="peak_temperature", levels=10)
+        draw_it(ax_peak_temperature, index=index, contour="peak_temperature", levels=10, Mass_unit=Mass_unit)
         ax_C = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+3)
-        draw_it(ax_C, index=index, contour="C", levels=10)
+        draw_it(ax_C, index=index, contour="C", levels=10, Mass_unit=Mass_unit)
         ax_M_loss = fig.add_subplot(SUBPLOT_ROWS, SUBPLOT_COLS, logical_row_index*SUBPLOT_COLS+logical_col_index*4+4)
-        draw_it(ax_M_loss, index=index, contour="M_loss", levels=10)
+        draw_it(ax_M_loss, index=index, contour="M_loss", levels=10, Mass_unit=Mass_unit)
     plt.tight_layout()
-    plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "magma_model_MT_contour_test.pdf"))
+    if figure_file_name is None:
+        figure_file_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), "magma_model_MT_contour_test.pdf")
+    plt.savefig(figure_file_name)
 
 
 def test_magma_model() -> None:
@@ -1168,8 +1208,17 @@ if __name__ == "__main__":
                                       (0.5, 30),
                                       (0.5, 45),
                                       ]
+    lower = [
+            (0.03, 45, True),
+            (0.1, 45, True),
+            (0.5, 45, True),
+            (0.5, 0, True)
+    ]
     gamma_list = [0.01, 0.03, 0.1, 0.2, 0.5]
     angle_list = [0, 30, 45, 60, 90]
     f_T_C_m_contour(draw_directly=True,
                     # gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list])
-                    gamma_angle_list=bug)
+                    gamma_angle_list=lower,
+                    figure_file_name = "lower_fTCm_contour.pdf",
+                    in_kg=True)
+
