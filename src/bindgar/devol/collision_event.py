@@ -857,6 +857,7 @@ def f_T_C_m_contour(draw_directly: bool=False,
     else:
         is_one_pair = False
     MT_Datas = []
+    lower_map = []
     dir_this_file = os.path.dirname(os.path.abspath(__file__))
     for index, angle_and_list in enumerate(gamma_angle_list):
         if len(angle_and_list) > 2:
@@ -879,6 +880,7 @@ def f_T_C_m_contour(draw_directly: bool=False,
             MT_Data = calculate_contour(gamma_value, impact_angle_value, lower=lower)
             np.save(cache_file_name, MT_Data, allow_pickle=True) # type: ignore
         MT_Datas.append(MT_Data)
+        lower_map.append(lower)
     def draw_it(ax: Axes,
                 index: int = 0,
                 contour: str = "melt_fraction",
@@ -914,13 +916,14 @@ def f_T_C_m_contour(draw_directly: bool=False,
                 vmax = 1
             else:
                 vmax = 10000
+        M_grid_local = M_grid_lower if lower_map[index] else M_grid
         if Mass_unit == "M_Earth":
             need_convert_to_earth = True
-            M_grid_plot = M_grid.copy() / M_EARTH * M_Mars
+            M_grid_plot = M_grid_local.copy() / M_EARTH * M_Mars
             need_convert_to_kg = False
         elif Mass_unit == "kg":
             need_convert_to_kg = True
-            M_grid_plot = M_grid.copy() * M_Mars
+            M_grid_plot = M_grid_local.copy() * M_Mars
             need_convert_to_earth = False
         else:
             need_convert_to_earth = False
