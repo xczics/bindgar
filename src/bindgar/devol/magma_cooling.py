@@ -847,6 +847,118 @@ def figure_Calogero_2025_figure2_ac():
     plt.tight_layout()
     plt.savefig('Calogero_2025_figure2_ac.pdf')
 
+def simple_collision(M_total: float, # in kg
+                     v_rel: float, # in v_esc
+                     impactor_angle: float, # in degree, 0 for head-on collision, 90 for grazing collision
+                     gamma: float, # ratio of impactor to total mass.
+                     rho_B: float = 3500, # in kg m-3, the density of the bulk material.
+                     rho_M: float = 3000, # in kg m-3, the density of the mantle.
+                     T_int: float = 1200, # in K
+                     heat_ratio: float = 1.0,
+                     C_p: float = 1200, # in J kg-1 K-1, the specific heat capacity of the material.
+                     mantle_fraction: float = 0.7, # the mass fraction of the mantle in the final body.
+                     ) -> Tuple[float,float]:
+    """
+    A simple collision and melt model to estimate the result (melt fraction and peak temperature) of a collision with given total mass and relative velocity.
+    I assumed the kinetic energy on the head-on direction of the collision is all (or multi a heat_ratio factor) converted to heat the final body, and the final body has a uniform temperature distribution.
+    The melt fraction is estimated by comparing the final temperature with the melting temperature, which is calculated by Rubie et al., (2015) melt model, with the pressure estimated by the gravity of the final body.
+    The peak temperature is estimated by the final temperature after the collision.
+    """
+    def _H_mantle(rho_B, rho_M, M_total, mantle_fraction) -> Tuple[float, float, float,float]:
+        """
+        calculate the height of the mantle by assuming the body is a sphere with bulk density rho_B, and the mantle has a density of rho_M and mass fraction of mantle_fraction.
+        return:
+            R_total: the radius of the final body in m.
+            r_core: the radius of the core in m.
+            H_mantle: the height of the mantle in m.
+        """
+        V_total = M_total / rho_B
+        R_total = (3 * V_total / (4 * math.pi)) ** (1/3)
+        M_mantle = M_total * mantle_fraction
+        V_mantle = M_mantle / rho_M
+        V_core = V_total - V_mantle
+        r_core = (3 * V_core / (4 * math.pi)) ** (1/3)
+        H_mantle = R_total - r_core
+        M_core = M_total - M_mantle
+        return R_total, r_core, M_core, H_mantle
+    def _melt_frac(T_final, R_total, r_core, M_core, H_mantle, rho_M):
+        """
+        calculate the melt fraction by comparing the final temperature with the melting temperature, which is calculated by Rubie et al., (2015) melt model, with the pressure estimated by the gravity of the final body.
+        The pressure is estimated by the gravity of the final body, which is calculated by the mass and radius of the final body.
+        The melting temperature is calculated by Rubie et al., (2015) melt model, which is a function of pressure.
+        return:
+            melt_fraction: the melt fraction of the mantle after the collision.
+        """
+        r = np.linspace(r_core, R_total, 1000)
+        dr = r[1] - r[0]
+        M_r = M_core + (4/3) * math.pi * rho_M * (r**3 - r_core**3)
+        g_r = G * M_r / r**2
+        # calculate the pressure by integrating the gravity from the surface to the center.
+        P_r = np.zeros_like(r) # in Pa
+        for i in reversed(range(len(r)-1)):
+            dr = r[i+1] - r[i]
+            P_r[i] = P_r[i+1] + rho_M * g_r[i] * dr
+        #print(P_r/1e9) # in GPa
+        # calculate the melting temperature by Rubie et al., (2015) melt model, which is a function of pressure.
+        T_melt_r = np.where(P_r * 1e-9 < 24, 
+                         (1874.0 + 55.43 * P_r * 1e-9 - 1.74 * (P_r * 1e-9)**2.0  + 0.0193 * (P_r * 1e-9)**3.0),
+                         (1249.0 + 58.28 * P_r * 1e-9 - 0.395 * (P_r * 1e-9)**2.0  + 0.011 * (P_r * 1e-9)**3.0))
+        #print(T_melt_r) # in K
+        melt_indexes = np.where(T_final > T_melt_r)[0]
+        if len(melt_indexes) == 0:
+            return 0.0
+        else:
+            return 4 * math.pi * np.sum(r[melt_indexes]**2 * dr) / (4/3 * math.pi * (R_total**3 - r_core**3))
+    M_i = M_total * gamma
+    M_t = M_total - M_i
+    R_total, r_core, M_core, H_mantle = _H_mantle(rho_B, rho_M, M_total, mantle_fraction)
+    v_esc = math.sqrt(2 * G * M_total / R_total)
+    v_rel_m_s = v_rel * v_esc
+    v_rel_m_s_head_on = v_rel_m_s * math.cos(math.radians(impactor_angle))
+    kinetic_energy = 0.5 * (M_i*M_t/(M_i+M_t)) * v_rel_m_s_head_on**2
+    T_final = heat_ratio * kinetic_energy / (M_total * C_p) + T_int
+    melt_fraction = _melt_frac(T_final, R_total, r_core, M_core, H_mantle, rho_M)
+    return melt_fraction, T_final
+
+def contour_lower_simple():
+    """
+    Make a contour plot of the melt fraction in the space of total mass and relative velocity, with fixed impact angle of 0 degree and gamma of 0.5.
+    The total mass is from 10^21 to 10^23 kg in log scale, and the relative velocity is from 0.9 to 10 in v_esc.
+    """
+    import matplotlib.pyplot as plt
+    M_total_values = np.logspace(21, 23, 30)
+    v_rel_values = np.linspace(0.9, 10, 30)
+    melt_fraction_mesh = np.zeros((len(M_total_values), len(v_rel_values)))
+    peak_temperature_mesh = np.zeros_like(melt_fraction_mesh)
+    for i, M_total in enumerate(M_total_values):
+        for j, v_rel in enumerate(v_rel_values):
+            melt_fraction_mesh[i,j], peak_temperature_mesh[i,j] = simple_collision(M_total, v_rel, impactor_angle=0, gamma=0.5)
+    plt.figure(figsize=(12,5))
+    plt.subplot(1,2,1)
+    contour = plt.contourf(M_total_values, v_rel_values, melt_fraction_mesh.T, levels=20, cmap='viridis')
+    plt.xscale('log')
+    plt.xlabel(r'Total Mass $M_{total}$ (kg)')
+    plt.ylabel(r'Relative Velocity $v_{rel}$ ($v_{esc}$)')
+    plt.yscale('log')
+    plt.colorbar(contour, label='Melt Fraction')
+    plt.title(r'0°, $\gamma$= 0.5')
+    plt.subplot(1,2,2)
+    # clip the peak temperature for max 10000 K to make the contour more visible.
+    peak_temperature_mesh = np.clip(peak_temperature_mesh, None, 10000)
+    contour = plt.contourf(M_total_values, v_rel_values, peak_temperature_mesh.T, levels=20, cmap='viridis')
+    # 将colorbar 中10000K 的标签改为 '>10000K'
+    cbar = plt.colorbar(contour, label='Peak Temperature (K)')
+    cbar.set_ticks(list(cbar.get_ticks())[:-1] + [10000])
+    cbar.set_ticklabels(list(label.get_text() for label in cbar.ax.get_yticklabels())[:-1] + ['>10000'])
+    plt.xscale('log')
+    plt.xlabel(r'Total Mass $M_{total}$ (kg)')
+    plt.ylabel(r'Relative Velocity $v_{rel}$ ($v_{esc}$)')
+    plt.yscale('log')
+    
+    plt.title(r'0°, $\gamma$= 0.5')
+    plt.tight_layout()
+    plt.savefig('simple_collision_contour.pdf')
+
 
 if __name__ == "__main__":
     #main()
