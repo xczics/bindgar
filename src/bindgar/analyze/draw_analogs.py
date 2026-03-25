@@ -50,6 +50,15 @@ def draw_analogs(simulations_lists: List[str], color_map: List[str]|CyclicList,
                   labels: List[str]|None = None,):
     plt.figure(figsize=(10, 8))
     ax = plt.gca()
+    # draw range of planet-like analogs
+    for crit_index, criteria in enumerate(planet_like_critical):
+        ax.fill_betweenx(
+            [criteria.m_lower, criteria.m_upper],
+            criteria.a_lower, criteria.a_upper,
+            color=color_analogs[crit_index],
+            alpha=0.3,
+            label=f"{criteria.name} - like"
+        )
     if not group_mode:
         group_list = [[sim] for sim in simulations_lists]
     else:
@@ -83,15 +92,6 @@ def draw_analogs(simulations_lists: List[str], color_map: List[str]|CyclicList,
                 m_values = np.concatenate((m_values, m_values_append))
             if sim_index == len(sim_list) - 1:
                 ax.scatter(a_values, m_values, color=color, label=label, alpha=0.8, s=20)
-        # draw range of planet-like analogs
-    for crit_index, criteria in enumerate(planet_like_critical):
-        ax.fill_betweenx(
-            [criteria.m_lower, criteria.m_upper],
-            criteria.a_lower, criteria.a_upper,
-            color=color_analogs[crit_index],
-            alpha=0.3,
-            label=f"{criteria.name} - like"
-        )
     ax.set_xlim(a_start, a_end)
     ax.set_ylim(m_start, m_end)
     ax.set_xlabel("Semi-major axis (a.u.)")
