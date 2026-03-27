@@ -276,7 +276,6 @@ def Jeans_escape_pMpt(T: float, parameter: MagmaOceanParameters, yita: float = 1
 
 def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2, Jeans_only = False, hyrodynamic_only = True) -> float:
     if Jeans_only:
-        #return Jeans_escape_pMpt_ref (T, parameter)
         return Jeans_escape_pMpt (T, parameter,yita=yita)[1]
     lambda_J, pMpt_Jeans = Jeans_escape_pMpt (T, parameter, yita)
     r = parameter.r

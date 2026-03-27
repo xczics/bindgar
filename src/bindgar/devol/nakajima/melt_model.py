@@ -107,8 +107,24 @@ class Model:
 
     # mass-radius relationship (see Section S.1.1. in our paper)
     def __radius(self, mass):
+        if mass > self.Mmar:
+            lnMM0 = np.log(mass / self.M0)
+        else:
+            lnMM0 = np.log(self.Mmar / self.M0)
+        gamma = self.a0 + self.a1 * lnMM0 + self.a2 * lnMM0 ** 2 + self.a3 * lnMM0 ** 3
+        return self.R0 * (mass / self.M0) ** gamma
+    def radius_corrected(self, mass):
+        lnMM0 = np.log(mass / self.M0)
+        if mass > self.Mmar:
+            gamma = self.a0 + self.a1 * lnMM0 + self.a2 * lnMM0 ** 2 + self.a3 * lnMM0 ** 3
+        else:
+            lnMMars = np.log(self.Mmar / self.M0)
+            gamma = self.a0 + self.a1 * lnMMars + self.a2 * lnMMars ** 2 + self.a3 * lnMMars ** 3
+        return self.R0 * (mass / self.M0) ** gamma   
+    def radius(self, mass):
         lnMM0 = np.log(mass / self.M0)
         gamma = self.a0 + self.a1 * lnMM0 + self.a2 * lnMM0 ** 2 + self.a3 * lnMM0 ** 3
+        #print(mass, gamma)
         return self.R0 * (mass / self.M0) ** gamma
 
     # Calculating a large Gamma(M). See Section S1.1. in our paper)
@@ -239,6 +255,7 @@ class Model:
             P = P + rho * self.GG * Mass / r ** 2.0 * dr
             Mass = Mass - 4 * np.pi * rho * r ** 2.0 * dr
             r = r - dr
+            #print(P,r)
 
         return r / Rt
 
@@ -462,6 +479,7 @@ class Model:
 
         Mplanet = Mantle_mass_model * (Mt + Mi)  # planetary mass
         rcore = self.__compute_coreradius(Mplanet)  # core radius
+        #print(rcore)
 
         u, P, r, rplanet = self.__integrate_internal_energy(
             Mplanet)  # calculating internal energy, pressure as a function of planetary radial distance as well as planetary radius
