@@ -35,7 +35,7 @@ def load_data_file(filename):
 class Model:
 
     def __init__(self, Mtotal=2.0, gamma=0.5, vel=2.0, entropy0=1100, impact_angle=90,
-                 outputfigurename="output.eps", use_tex=False, silent=True):
+                 outputfigurename="output.eps", use_tex=False, silent=True, force_merge=False):
         self.Mmar = 6.4171e23  # mass of Mars
         self.R0 = 1.5717e6  # impactor radius
         self.M0 = 6.39e22  # scaling coefficient
@@ -45,6 +45,7 @@ class Model:
         self.a3 = -7.4332e-5  # planetary mass-radius relationship
         self.GG = 6.67408e-11  # gravitational constant
         self.impact_angle_choices = [0.0, 30.0, 45.0, 60.0, 90.0]  # choice of impact angle
+        self.force_merge = force_merge  # if True, the model will use the merging model even if the impact velocity is higher than the critical velocity. 
 
         self.impact_angle = float(impact_angle)  # impactor impact angle with target
         self.use_tex = use_tex
@@ -405,7 +406,7 @@ class Model:
                                         ang)  # critical velocity (Genda et al 2012). See equation 16 in our paper
 
 
-        if self.vel <= critical_velocity:  # merging
+        if self.vel <= critical_velocity or self.force_merge:  # merging
             Mantle_mass_model = para0[10] * self.__legendre(0, np.cos(ang)) + para0[11] * self.__legendre(1, np.cos(ang))
             # mantle mass fitting model at vimp=vesc. See Equation 7
             

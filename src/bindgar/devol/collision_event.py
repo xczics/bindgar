@@ -17,7 +17,7 @@ import os
 import pickle
 import atexit
 
-magma_produce_keys = ["entropy0","outputfigurename","use_tex","silent"]
+magma_produce_keys = ["entropy0","outputfigurename","use_tex","silent","force_merge"]
 cooling_keys = ["rho_B","rho_M","kapa","v" ,"k","C_p","alpha_V","g_s","r","L","M_mol"]
 combined_keys = set(magma_produce_keys) | set(cooling_keys)
 
@@ -58,6 +58,8 @@ class CollisionEvent():
             self._record2param(collision, **collision_handle_kwargs)
         self._magma_produce_kwargs = {key: kwargs[key] for key in magma_produce_keys if key in kwargs}
         self._cooling_kwargs = {key: kwargs[key] for key in cooling_keys if key in kwargs}
+        if "force_merge" not in self._magma_produce_kwargs:
+            self._magma_produce_kwargs["force_merge"] = True
 
     @classmethod
     def from_parameter(cls,
@@ -795,17 +797,20 @@ def f_T_C_m_contour(draw_directly: bool=False,
     import matplotlib.cm as cm
     from matplotlib.colors import Normalize
 
-    MIN_M = 0.03
+    MIN_M = 0.001
     MAX_M = 40
     MIN_V = 0.3
-    MAX_V = 9
+    MAX_V = 27
+    MIN_V_Lower = 0.3
+    MAX_V_Lower = 9
     MIN_M_Lower = 0.0015
     MAX_M_Lower = 0.3
-    M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 80)
-    v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 80)
+    M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 120)
+    v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 120)
     M_array_lower = np.logspace(np.log10(MIN_M_Lower), np.log10(MAX_M_Lower), 80)
+    v_array_lower = np.logspace(np.log10(MIN_V_Lower), np.log10(MAX_V_Lower), 80)
     M_grid, v_grid = np.meshgrid(M_array, v_array, indexing='ij')
-    M_grid_lower, v_grid_lower = np.meshgrid(M_array_lower, v_array, indexing='ij')
+    M_grid_lower, v_grid_lower = np.meshgrid(M_array_lower, v_array_lower, indexing='ij')
     contor_titles = {
         "melt_fraction": r"$f_{melt}$",
         "peak_temperature": r"$T_{peak}$ (K)",
@@ -917,6 +922,7 @@ def f_T_C_m_contour(draw_directly: bool=False,
             else:
                 vmax = 10000
         M_grid_local = M_grid_lower if lower_map[index] else M_grid
+        v_grid_local = v_grid_lower if lower_map[index] else v_grid
         if Mass_unit == "M_Earth":
             need_convert_to_earth = True
             M_grid_plot = M_grid_local.copy() / M_EARTH * M_Mars
@@ -945,7 +951,7 @@ def f_T_C_m_contour(draw_directly: bool=False,
             contor_data = np.where(contor_data > 1, 1, contor_data)
         norm = Normalize(vmin=vmin, vmax=vmax)
         sm = cm.ScalarMappable(cmap=cmap, norm=norm)
-        contor_plot = ax.contourf(M_grid_plot, v_grid, contor_data, levels=levels, cmap=cmap, vmin=vmin, vmax=vmax,norm=norm, **contor_kwargs)
+        contor_plot = ax.contourf(M_grid_plot, v_grid_local, contor_data, levels=levels, cmap=cmap, vmin=vmin, vmax=vmax,norm=norm, **contor_kwargs)
         if contour != "peak_temperature":
             #添加colorbar
             cbar = plt.colorbar(sm, ax=ax, ticks = [0.0, 0.25, 0.5, 0.75, 1.0])
@@ -1207,9 +1213,9 @@ if __name__ == "__main__":
                                       (0.03, 0),
                                       (0.1, 0),
                                       (0.2, 0),
-                                      (0.5, 0),
-                                      (0.5, 30),
-                                      (0.5, 45),
+                                      #(0.5, 0),
+                                      #(0.5, 30),
+                                      #(0.5, 45),
                                       ]
     lower = [
             (0.03, 45, True),
@@ -1220,8 +1226,9 @@ if __name__ == "__main__":
     gamma_list = [0.01, 0.03, 0.1, 0.2, 0.5]
     angle_list = [0, 30, 45, 60, 90]
     f_T_C_m_contour(draw_directly=True,
-                    # gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list])
-                    gamma_angle_list=lower,
-                    figure_file_name = "lower_fTCm_contour.pdf",
-                    in_kg=True)
+                    # gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list],
+                    gamma_angle_list=bug,
+                    #figure_file_name = "fTCm_contour_0407.pdf",
+                    #in_kg=True
+                    )
 

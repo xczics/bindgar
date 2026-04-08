@@ -31,7 +31,6 @@ class MagmaOceanParameters:
         size_factor = (3 / (4 * math.pi * self.rho_B)) ** (1/3)
         return (yita_ratio*escape_ratio*size_factor)**(3/2)
 
-
 def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float:
     r"""Calculate the average temperature magma ocean from the surface temperature.
     T = T_s * (1 + T_s^2 * (frac{\kapa v}{\rho_M g_s \alpha_v})^(1/4) * (2 \sigma / k)^(3/4))
@@ -290,15 +289,14 @@ def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2, Jeans_only
 def black_body_flux (T_s: float, r: float, sb_factor:float=1.0) -> float:
     return sb_factor * Stefan_Boltzmann * T_s ** 4 * (4 * math.pi * r **2)
 
-def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2, hyrodynamic_only: bool=True) -> float:
+def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters,mass_loss_rate: float) -> float:
     """
     Calculate the cooling rate of the magma ocean/ pool.
 
     Args:
         T (float):  Temperature in K.
         M_l (float): The mass of the magma ocean/ pool
-        parameter (MagmaOceanParameters): Magma ocean parameters.
-        yita (float): adiabatic index.
+        mass_loss_rate (float): The mass loss rate in kg s-1, which can be calculated by pMpt.
     
     Return: float, the cooling rate of the magma ocean.
 
@@ -307,21 +305,44 @@ def pTpt (T: float, M_l: float, parameter: MagmaOceanParameters, yita: float=1.2
     F_black = black_body_flux ( T_s = T_s,r = parameter.r, sb_factor=parameter.sb_factor)
     Heat_capacity = M_l * parameter.C_p
     GM = G * parameter.M_tot
-    if parameter.M_tot > parameter.M_critical(T):
+    if mass_loss_rate < 1e-5:
         return F_black / Heat_capacity
     else:
-        return (pMpt(T,parameter,yita)*(GM / parameter.r + parameter.L) + F_black) / Heat_capacity
+        return (mass_loss_rate*(GM / parameter.r + parameter.L) + F_black) / Heat_capacity
     
-def distribution_coefficient (T: float, version: str='Hin_2017_K') -> float:
-    if version == 'Hin_2017_K':
-        if T <= 2500:
-            return 4.5 * math.exp(3.44e-3 * (T-1800)) 
-        else:
-            return 50 
+def distribution_coefficient (T: float, version_D: str='Hin_2017_K',
+                              shift10: float|None = None,
+                              shifte: float|None = None,
+                              ) -> float:
+    if shift10 is not None and shifte is not None:
+        raise ValueError("Only one of shift10 and shifte can be specified.")
+    if shift10 is not None:
+        shift_factor = 10 ** shift10
+    elif shifte is not None:
+        shift_factor = math.exp(shifte)
     else:
-        raise ValueError(f"Unknown version {version} for distribution_coefficient")
+        shift_factor = 1.0
+    if version_D == 'Hin_2017_K':
+        if T <= 2500:
+            original = 4.5 * math.exp(3.44e-3 * (T-1800)) 
+        else:
+            original = 50 
+    else:
+        raise ValueError(f"Unknown version {version_D} for distribution_coefficient")
+    return original * shift_factor
 
-def step_concentration (T: float, M_l: float, Mass_loss_step:float,version_D: str='Hin_2017_K') -> float:
+def vi_Hin_2017_K():
+    import matplotlib.pyplot as plt
+    T_values = np.linspace(1200, 4000, 100)
+    D_values = np.array([distribution_coefficient(T, version_D='Hin_2017_K') for T in T_values])
+    plt.plot(T_values, D_values)
+    plt.xlabel('Temperature (K)')
+    plt.ylabel('Distribution Coefficient D')
+    plt.title('Distribution Coefficient from Hin et al. 2017')
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.savefig('distribution_coefficient_Hin_2017_K.pdf')
+
+def step_concentration (T: float, M_l: float, Mass_loss_step:float,version_D: str='Hin_2017_K',**kwargs) -> float:
     r""" Calculate the concentration step of the volatile in the magma ocean during a time step Dt.
     C_step/C =  \frac{M_l}{M_l + (\frac{\partial M_l}{\partial t}) \Delta t (D - 1)}
     where C is the current concentration, D is the distribution coefficient, pMpt is the mass loss rate, M_l is the mass of the magma ocean.
@@ -333,7 +354,9 @@ def step_concentration (T: float, M_l: float, Mass_loss_step:float,version_D: st
     Returns:
         float: Concentration step ratio.
     """
-    D = distribution_coefficient (T, version_D)
+    distribution_kwargs = {key: kwargs[key] for key in ['shift10', 'shifte'] if key in kwargs}
+    distribution_kwargs["version_D"] = version_D
+    D = distribution_coefficient (T, **distribution_kwargs)
     C_step_factor = M_l / (M_l + Mass_loss_step * (D - 1))
     return C_step_factor
 
@@ -342,7 +365,8 @@ def devoltilization(T_init: float, M_l_init: float,
                     T_end: float=1200,
                     yita: float=1.2,
                     hydrodynamic_only: bool=True,
-                    final_only: bool=True) -> tuple:
+                    final_only: bool=True,
+                    **kwargs) -> tuple:
     r""" Simulate the devolatilization process of the magma ocean from initial temperature T_init and initial mass M_l_init.
     Args:
         T_init (float): Initial temperature in K.
@@ -355,6 +379,7 @@ def devoltilization(T_init: float, M_l_init: float,
         M_loss_total (float): Total mass loss during the devolatilization process in kg.
         C_final (float): Final concentration ratio of the volatile in the magma ocean.
     """
+    distribution_kwargs = {key: kwargs[key] for key in ['shift10', 'shifte','version_D'] if key in kwargs}
     T = T_init
     if T_init > 10000:
         print(f"Warning: T_init {T_init}K is too high, reset it to 10000K.")
@@ -378,13 +403,14 @@ def devoltilization(T_init: float, M_l_init: float,
         M_loss_array.append(float(M_loss_total))
         C_array.append(float(C))
     while T > T_end and M_l > 0:
-        cooling_rate = float(pTpt(T, M_l, params, yita=yita, hyrodynamic_only=hydrodynamic_only))   
+        mass_loss_rate = pMpt(T, params, yita=yita, hyrodynamic_only=hydrodynamic_only)
+        cooling_rate = float(pTpt(T, M_l, params, mass_loss_rate))   
         T_decrease = dT * T
         Dt = T_decrease / cooling_rate
         t_total += Dt
-        M_loss_step = float(pMpt(T,params,hyrodynamic_only=hydrodynamic_only,yita=yita) * Dt)
+        M_loss_step = float(mass_loss_rate * Dt)
         M_loss_total += M_loss_step
-        C *= float(step_concentration (T, M_l, M_loss_step))
+        C *= float(step_concentration (T, M_l, M_loss_step, **distribution_kwargs))
         M_l -= M_loss_step
         T -= T_decrease
         if not final_only:
@@ -736,6 +762,55 @@ def vi_pMpt():
                  ha='center', va='bottom')
     plt.savefig('pMpt_comparison.pdf')
 
+def vi_pMpt_gamma():
+    """
+    Test the pMpt vs r with different yita, and set T = 1500 and 2500 K. r from 1e5 to 1e7 m in log scale. 
+    Plot the pMpt vs r with different yita in different line styles, while different T in different colors.
+    """
+    import matplotlib.pyplot as plt
+    r_values = np.logspace(5, 7, 100)
+    yita_values = [1.4, 1.2, 1.0]
+    T_values = [1500, 2500]
+    for T in T_values:
+        for yita in yita_values:
+            pMpt_values = np.array([pMpt(T, MagmaOceanParameters(r=r), yita=yita) for r in r_values])
+            plt.plot(r_values/1e6, pMpt_values, label=f'T={T}K, '+r'$\gamma=$'+format_float(yita), linestyle='-' if yita==1.2 else '--' if yita==1.0 else '-.', color='C0' if T==1500 else 'C1')
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel(r'Planet Radius ($10^6$ m)')
+    plt.ylabel(r'Mass Loss Rate $\dot{M}$ (kg s$^{-1}$)')
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.legend()
+    plt.savefig('pMpt_gamma_comparison.pdf')
+
+def vi_isothermal_devol():
+    """
+    The x-axis is the r from 1e5 to 1e7 m in log scale, and the y-axis is the final concentration ratio after devolatilization with T_init = 2000K, 2500K, 3000K, and T_end = 1200K.
+    """
+    import matplotlib.pyplot as plt
+    r_values = np.logspace(5, 7, 80)
+    T_inits = [2000, 2500, 3000]
+    cmap = ['C0', 'C1', 'C2']
+    for i, T_init in enumerate(T_inits):
+        C_final_values = []
+        C_final_values_gamma_non_1 = []
+        for r in r_values:
+            params = MagmaOceanParameters(r=r)
+            M_l = params.M_tot * 0.7 * 0.3
+            _, _, _, C_final = devoltilization(T_init, M_l, params, final_only=True, yita=1.0, hydrodynamic_only=True)
+            C_final_values.append(C_final)
+            _, _, _, C_final_gamma_non_1 = devoltilization(T_init, M_l, params, final_only=True, yita=1.02, hydrodynamic_only=True)
+            C_final_values_gamma_non_1.append(C_final_gamma_non_1)
+        plt.plot(r_values/1e6, C_final_values, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.0$', color=cmap[i])
+        plt.plot(r_values/1e6, C_final_values_gamma_non_1, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.02$', linestyle='--', color=cmap[i])
+    plt.xscale('log')
+    plt.xlim(1e5/1e6, 5e7/1e6)
+    plt.xlabel(r'Planet Radius ($10^6$ m)')
+    plt.ylabel('Final Concentration Ratio')
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.legend(loc = 'lower right')
+    plt.savefig('isothermal_devolatilization.pdf')
+
 def test_cooling_with_jeans():
     """
     For an r=1e6 m planet, compare the evoluations of T, C, and M_loss with time by only considering hydrodynamic or take Jeans escape into account.
@@ -958,6 +1033,123 @@ def contour_lower_simple():
     plt.tight_layout()
     plt.savefig('simple_collision_contour.pdf')
 
+def vi_effect_gamma():
+    """
+    test the effect of gamma (in atmosphere context) on the threshold of devol.
+    plot x-axis as gamma, from 1.5 to 1.0, and y-axis as the largest r required to lose at leat 50% of the K, and temperatures of 2000K, 2500K, 3000K, 3500K in different lines.    
+    """
+    import matplotlib.pyplot as plt
+    gamma_values = np.linspace(1.5, 1.0, 20)
+    T_values = [2500, 3000, 3500]
+    r_thresholds = np.zeros((len(T_values), len(gamma_values)))
+    r_try_value_min = 1.6e5
+    r_try_value_max = 5e7
+    for i, gamma in enumerate(gamma_values):
+        for j, T in enumerate(T_values):
+            # obtain the r_threshold by binary search. The when r is smaller than r_threshold, the K loss fraction is larger than 0.5, otherwise, the K loss fraction is smaller than 0.5.
+            # test if r_try_value_min can cause more than 50% K loss, if not, the r_threshold is smaller than r_try_value_min. if r_try_value_max can cause less than 50% K loss, then the r_threshold is larger than r_try_value_max. Otherwise, do binary search between r_try_value_min and r_try_value_max to find the r_threshold.
+            params = MagmaOceanParameters(r=r_try_value_min)
+            _, _, _, C_final = devoltilization(T, params.M_tot * 0.7 * 0.3, params, final_only=True,yita=gamma)
+            if C_final > 0.5:
+                r_thresholds[j,i] = np.nan
+                print(f'gamma={gamma:.2f}, T={T}K, r_threshold < {r_try_value_min:.2e} m, C_final={C_final:.2f} at r={r_try_value_min:.2e} m')
+                continue
+            params = MagmaOceanParameters(r=r_try_value_max)
+            _, _, _, C_final = devoltilization(T, params.M_tot * 0.7 * 0.3, params, final_only=True,yita=gamma)
+            if C_final < 0.5:
+                r_thresholds[j,i] = np.nan
+                print(f'gamma={gamma:.2f}, T={T}K, r_threshold > {r_try_value_max:.2e} m, C_final={C_final:.2f} at r={r_try_value_max:.2e} m')
+                continue
+            # binary search
+            r_max = r_try_value_max
+            r_min = r_try_value_min
+            while r_max - r_min > 1e3:
+                r_try_value_mid = (r_max + r_min) / 2
+                params = MagmaOceanParameters(r=r_try_value_mid)
+                _, _, _, C_final = devoltilization(T, params.M_tot * 0.7 * 0.3, params, final_only=True,yita=gamma)
+                if C_final > 0.5:
+                    r_max = r_try_value_mid
+                else:
+                    r_min = r_try_value_mid
+            r_thresholds[j,i] = (r_max + r_min) / 2
+            print(f'gamma={gamma:.2f}, T={T}K, r_threshold={r_thresholds[j,i]:.2e} m')
+    for j, T in enumerate(T_values):
+        plt.plot(gamma_values, r_thresholds[j,:], label=f'T={T}K')
+    plt.xlabel(r'$\gamma$')
+    plt.ylabel(r'largest r to lost 50% K (m)')
+    plt.ylim(1e5, 1e7)
+    plt.yscale('log')
+    # add y-axis ticks at Earth radius, Mars radius, Moon radius, and Vesta radius, and label them.
+    original_yticks = plt.yticks()[0]
+    original_ylabels = plt.yticks()[1]
+    new_yticks = [2.6e5, 1.7e6, 3.4e6, 6.4e6]
+    new_ytick_labels = ['Vesta', 'Moon', 'Mars', 'Earth']
+    plt.yticks(list(original_yticks) + new_yticks, list(original_ylabels) + new_ytick_labels) # type: ignore
+    plt.ylim(1e5, 1e7)
+    plt.legend()
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.savefig('effect_gamma.pdf')
+
+def vi_effect_D():
+    """
+    In the above figure, add the effect of D.
+    Set T = 2500 K, gamma = 1.01, 1.2, 1.4 in different line colors. and D = original * e^(shifte), where shifte ranges [-1, 2] as x-axis.
+    Calculate the r_threshold for each combination of gamma and D, and plot the r_threshold vs gamma with different D in different line colors.
+    """
+    import matplotlib.pyplot as plt
+    T = 3000
+    gamma_values = [1.4, 1.2, 1.01]
+    shifte_value = np.linspace(-2, 4, 20)
+    r_thresholds = np.zeros((len(gamma_values), len(shifte_value)))
+    r_try_value_min = 1.0e5
+    r_try_value_max = 5e7
+    for i, gamma in enumerate(gamma_values):
+        for j, shifte in enumerate(shifte_value):
+            # obtain the r_threshold by binary search. The when r is smaller than r_threshold, the K loss fraction is larger than 0.5, otherwise, the K loss fraction is smaller than 0.5.
+            # test if r_try_value_min can cause more than 50% K loss, if not, the r_threshold is smaller than r_try_value_min. if r_try_value_max can cause less than 50% K loss, then the r_threshold is larger than r_try_value_max. Otherwise, do binary search between r_try_value_min and r_try_value_max to find the r_threshold.
+            params = MagmaOceanParameters(r=r_try_value_min)
+            _, _, _, C_final = devoltilization(T, params.M_tot * 0.7 * 0.3, params, final_only=True,yita=gamma, shifte=shifte)
+            if C_final > 0.5:
+                r_thresholds[i,j] = np.nan
+                print(f'shifte={shifte:.2f}, gamma={gamma:.3f}, T={T}K, r_threshold < {r_try_value_min:.2e} m, C_final={C_final:.2f} at r={r_try_value_min:.2e} m')
+                continue
+            params = MagmaOceanParameters(r=r_try_value_max)
+            _, _, _, C_final = devoltilization(T, params.M_tot * 0.7 * 0.3, params, final_only=True,yita=gamma, shifte=shifte)
+            if C_final < 0.5:
+                r_thresholds[i,j] = np.nan
+                print(f'shifte={shifte:.2f}, gamma={gamma:.3f}, T={T}K, r_threshold > {r_try_value_max:.2e} m, C_final={C_final:.2f} at r={r_try_value_max:.2e} m')
+                continue
+            # binary search
+            r_max = r_try_value_max
+            r_min = r_try_value_min
+            while r_max - r_min > 1e3:
+                r_try_value_mid = (r_max + r_min) / 2
+                params = MagmaOceanParameters(r=r_try_value_mid)
+                _, _, _, C_final = devoltilization(T, params.M_tot * 0.7 * 0.3, params, final_only=True,yita=gamma, shifte=shifte)
+                if C_final > 0.5:
+                    r_max = r_try_value_mid
+                else:
+                    r_min = r_try_value_mid
+            r_thresholds[i,j] = (r_max + r_min) / 2
+            print(f'shifte={shifte:.2f}, gamma={gamma:.3f}, T={T}K, r_threshold={r_thresholds[i,j]:.2e} m')
+    for i, gamma in enumerate(gamma_values):
+        plt.plot(shifte_value, r_thresholds[i,:], label=r'$\gamma=$'+format_float(gamma), color='C'+str(i))
+    # add a text to indicate the T_init = 3000 K for the figure.
+    plt.text(0.15, 0.85, r'$T_{init}$=3000 K', transform=plt.gca().transAxes, fontsize=12)
+    plt.xlabel(r'x, where D = $D_{original}$ * $e^{x}$')
+    plt.ylabel(r'largest r to lost 50% K (m)')
+    plt.ylim(1e5, 1e7)
+    plt.yscale('log')
+    # add y-axis ticks at Earth radius, Mars radius, Moon radius, and Vesta radius, and label them.
+    original_yticks = plt.yticks()[0]
+    original_ylabels = plt.yticks()[1]
+    new_yticks = [2.6e5, 1.7e6, 3.4e6, 6.4e6]
+    new_ytick_labels = ['Vesta', 'Moon', 'Mars', 'Earth']
+    plt.yticks(list(original_yticks) + new_yticks, list(original_ylabels) + new_ytick_labels) # type: ignore
+    plt.ylim(1e5, 1e7)
+    plt.legend()
+    plt.grid(color='grey', linestyle='--', linewidth=0.5)
+    plt.savefig('effect_D.pdf')
 
 if __name__ == "__main__":
     #main()
