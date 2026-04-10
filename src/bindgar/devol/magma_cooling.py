@@ -30,6 +30,15 @@ class MagmaOceanParameters:
         escape_ratio = R_gas * T / (G * self.M_mol)
         size_factor = (3 / (4 * math.pi * self.rho_B)) ** (1/3)
         return (yita_ratio*escape_ratio*size_factor)**(3/2)
+    
+    def mantle_loss(self, mass_loss: float) -> None:
+        """
+        update the parameters after the mass loss of the magma ocean.
+        """
+        self.M_tot -= mass_loss
+        self.r -= (mass_loss / self.rho_M) / (4 * math.pi * self.r ** 2)
+        # recalculate the surface gravity directly from the new mass and radius.
+        self.g_s = G * self.M_tot / self.r ** 2
 
 def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float:
     r"""Calculate the average temperature magma ocean from the surface temperature.
@@ -113,14 +122,13 @@ def rho_surface_from_T (T: float, M_mol: float) -> float:
         float: Surface density in kg m-3.
     """ 
     P_vapor = vapour_pressure(T)
-    M_mol = 0.04  # kg mol-1
     rho_s = P_vapor * M_mol / ( R_gas * T )
     return rho_s # in kg m-3
 
 def isothermal_sound_speed (T: float, M_mol: float) -> float:
     return math.sqrt(( R_gas * T ) / M_mol)
 
-def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: float=1.2):
+def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: float=1.2, exact_solve: bool = False):
     r""" Calculate the surface outflow velocity.
     u_s = c_s \sqrt{ 2 * (\frac{\yita - 1}{3 \yita - 1}
                         (\frac{\yita}{\yita - 1} - \frac{GM}{c_s^2r})) ^ \frac{3 \yita - 1}{\yita -1}
@@ -138,17 +146,25 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
     """
     c_s = isothermal_sound_speed (T, parameter.M_mol)
     c_s2r = c_s ** 2 * parameter.r
+    GM = G * parameter.M_tot
     if yita != 1.0:
         yita_factor = (yita - 1)/(3 * yita - 1)
-        GM = G * parameter.M_tot
         first_part = (yita_factor*((yita / (yita - 1))-(GM / c_s2r))) ** (1 / yita_factor) if (yita / (yita - 1))-(GM / c_s2r) > 0 else 0
         second_part = (GM / (4 * c_s2r)) ** (4 * yita_factor)
         third_part = (2 / yita) ** ( 2 / (yita - 1 ))
         u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
     else:
-        r_c = G * parameter.M_tot / (2 * c_s ** 2)
+        r_c = GM / (2 * c_s ** 2)
         r_s = parameter.r
-        u_s = c_s * (r_c / r_s) ** 2 * math.exp(3/2 - G * parameter.M_tot / (c_s ** 2 * r_s))
+        if not exact_solve:
+            u_s = c_s * (r_c / r_s) ** 2 * math.exp(3/2 - G * parameter.M_tot / (c_s ** 2 * r_s))
+        else:
+            from scipy.special import lambertw
+            # Solve for u_s using the Lambert W function
+            Z = - (r_c / r_s)**4 * math.exp(3 - 4 * r_c / r_s)
+            W = lambertw(Z)
+            u_s = c_s * math.sqrt(-W.real)
+    #print(u_s,c_s)
     return u_s
 
 def Jeans_escape_pMpt_ref (T: float, parameter: MagmaOceanParameters) -> float:
@@ -273,18 +289,17 @@ def Jeans_escape_pMpt(T: float, parameter: MagmaOceanParameters, yita: float = 1
     
     return lambda_J, dMdt
 
-def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2, Jeans_only = False, hyrodynamic_only = True) -> float:
+def pMpt (T: float, parameter: MagmaOceanParameters, yita: float=1.2, Jeans_only = False, hyrodynamic_only = True, exact_gamma_1: bool = False) -> float:
     if Jeans_only:
         return Jeans_escape_pMpt (T, parameter,yita=yita)[1]
     lambda_J, pMpt_Jeans = Jeans_escape_pMpt (T, parameter, yita)
-    r = parameter.r
     rho_s = rho_surface_from_T (T, parameter.M_mol)
-    u_s = surface_outflow_velocity (T, parameter, yita)
+    u_s = surface_outflow_velocity (T, parameter, yita, exact_solve=exact_gamma_1)
     use_jeans = (lambda_J > 3 ) if yita ==1.0 else (u_s == 0.0)
     if use_jeans and not hyrodynamic_only:
         return pMpt_Jeans
     else:
-        return rho_s * u_s * 4 * math.pi * r ** 2
+        return rho_s * u_s * 4 * math.pi * parameter.r ** 2
 
 def black_body_flux (T_s: float, r: float, sb_factor:float=1.0) -> float:
     return sb_factor * Stefan_Boltzmann * T_s ** 4 * (4 * math.pi * r **2)
@@ -366,6 +381,7 @@ def devoltilization(T_init: float, M_l_init: float,
                     yita: float=1.2,
                     hydrodynamic_only: bool=True,
                     final_only: bool=True,
+                    update_params: bool = False,
                     **kwargs) -> tuple:
     r""" Simulate the devolatilization process of the magma ocean from initial temperature T_init and initial mass M_l_init.
     Args:
@@ -412,6 +428,8 @@ def devoltilization(T_init: float, M_l_init: float,
         M_loss_total += M_loss_step
         C *= float(step_concentration (T, M_l, M_loss_step, **distribution_kwargs))
         M_l -= M_loss_step
+        if update_params:
+            params.mantle_loss(M_loss_step)
         T -= T_decrease
         if not final_only:
             T_array.append(T)
@@ -769,19 +787,30 @@ def vi_pMpt_gamma():
     """
     import matplotlib.pyplot as plt
     r_values = np.logspace(5, 7, 100)
-    yita_values = [1.4, 1.2, 1.0]
+    yita_values = [1.2, 1.005, 1.0, 1.0]
     T_values = [1500, 2500]
+    linestyles = [ '-', '--', ':', '-.']
+    exact_gamma_1 = [ None, None, True, False]
     for T in T_values:
-        for yita in yita_values:
-            pMpt_values = np.array([pMpt(T, MagmaOceanParameters(r=r), yita=yita) for r in r_values])
-            plt.plot(r_values/1e6, pMpt_values, label=f'T={T}K, '+r'$\gamma=$'+format_float(yita), linestyle='-' if yita==1.2 else '--' if yita==1.0 else '-.', color='C0' if T==1500 else 'C1')
+        for iyita, yita in enumerate(yita_values):
+            if exact_gamma_1[iyita] is None:
+                pMpt_values = np.array([pMpt(T, MagmaOceanParameters(r=r), yita=yita) for r in r_values])
+                plt.plot(r_values/1e6, pMpt_values, label=f'T={T}K, '+r'$\gamma=$'+f'{yita}', linestyle=linestyles[iyita], color='C0' if T==1500 else 'C1')
+            elif exact_gamma_1[iyita] is True:
+                pMpt_values = np.array([pMpt(T, MagmaOceanParameters(r=r), yita=1.0,exact_gamma_1=True) for r in r_values])
+                plt.plot(r_values/1e6, pMpt_values, label=f'T={T}K, '+r'$\gamma=1.0$ (exact)', linestyle=linestyles[iyita], color='C0' if T==1500 else 'C1')
+            else:
+                pass
+                #pMpt_values = np.array([pMpt(T, MagmaOceanParameters(r=r), yita=1.0,exact_gamma_1=False) for r in r_values])
+                #plt.plot(r_values/1e6, pMpt_values, label=f'T={T}K, '+r'$\gamma=1.0$ (estimated)', linestyle=linestyles[iyita], color='C0' if T==1500 else 'C1')
     plt.xscale('log')
     plt.yscale('log')
+    plt.ylim(1e-20, 1e15)
     plt.xlabel(r'Planet Radius ($10^6$ m)')
     plt.ylabel(r'Mass Loss Rate $\dot{M}$ (kg s$^{-1}$)')
     plt.grid(color='grey', linestyle='--', linewidth=0.5)
     plt.legend()
-    plt.savefig('pMpt_gamma_comparison.pdf')
+    plt.savefig('pMpt_gamma_comparison_fix_isothermal.pdf')
 
 def vi_isothermal_devol():
     """
@@ -794,6 +823,7 @@ def vi_isothermal_devol():
     for i, T_init in enumerate(T_inits):
         C_final_values = []
         C_final_values_gamma_non_1 = []
+        C_final_values_reaching_1 = []
         for r in r_values:
             params = MagmaOceanParameters(r=r)
             M_l = params.M_tot * 0.7 * 0.3
@@ -801,15 +831,18 @@ def vi_isothermal_devol():
             C_final_values.append(C_final)
             _, _, _, C_final_gamma_non_1 = devoltilization(T_init, M_l, params, final_only=True, yita=1.02, hydrodynamic_only=True)
             C_final_values_gamma_non_1.append(C_final_gamma_non_1)
+            _, _, _, C_final_reaching_1 = devoltilization(T_init, M_l, params, final_only=True, yita=1.005, hydrodynamic_only=True)
+            C_final_values_reaching_1.append(C_final_reaching_1)
         plt.plot(r_values/1e6, C_final_values, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.0$', color=cmap[i])
         plt.plot(r_values/1e6, C_final_values_gamma_non_1, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.02$', linestyle='--', color=cmap[i])
+        plt.plot(r_values/1e6, C_final_values_reaching_1, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.005$', linestyle=':', color=cmap[i])
     plt.xscale('log')
     plt.xlim(1e5/1e6, 5e7/1e6)
     plt.xlabel(r'Planet Radius ($10^6$ m)')
     plt.ylabel('Final Concentration Ratio')
     plt.grid(color='grey', linestyle='--', linewidth=0.5)
     plt.legend(loc = 'lower right')
-    plt.savefig('isothermal_devolatilization.pdf')
+    plt.savefig('isothermal_devolatilization.eps')
 
 def test_cooling_with_jeans():
     """
@@ -877,7 +910,7 @@ def figure_Calogero_2025_figure2_ac():
 
     # convert M_total to radius and M_l.
     radius_values = (3 * M_total_values / (4 * math.pi * 3500)) ** (1/3)
-    M_l = 0.7 * M_total_values
+    M_l = 0.7 * M_total_values 
 
     for i, radius_values in enumerate(radius_values):
         params = MagmaOceanParameters(r=radius_values)
@@ -1150,6 +1183,8 @@ def vi_effect_D():
     plt.legend()
     plt.grid(color='grey', linestyle='--', linewidth=0.5)
     plt.savefig('effect_D.pdf')
+
+
 
 if __name__ == "__main__":
     #main()

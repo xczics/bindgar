@@ -1209,13 +1209,13 @@ if __name__ == "__main__":
     # main()
     # test_magma_model()
     # boundary_magma_model(draw_directly=True)
-    bug = [                           (0.01, 0),
+    bug = [                           #(0.01, 0),
                                       (0.03, 0),
                                       (0.1, 0),
-                                      (0.2, 0),
-                                      #(0.5, 0),
+                                      #(0.2, 0),
+                                      (0.5, 0),
                                       #(0.5, 30),
-                                      #(0.5, 45),
+                                      (0.5, 45),
                                       ]
     lower = [
             (0.03, 45, True),
@@ -1228,7 +1228,7 @@ if __name__ == "__main__":
     f_T_C_m_contour(draw_directly=True,
                     # gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list],
                     gamma_angle_list=bug,
-                    #figure_file_name = "fTCm_contour_0407.pdf",
-                    #in_kg=True
+                    figure_file_name = "fTCm_contour.pdf",
+                    in_kg=True
                     )
 
