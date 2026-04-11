@@ -827,22 +827,22 @@ def vi_isothermal_devol():
         for r in r_values:
             params = MagmaOceanParameters(r=r)
             M_l = params.M_tot * 0.7 * 0.3
-            _, _, _, C_final = devoltilization(T_init, M_l, params, final_only=True, yita=1.0, hydrodynamic_only=True)
+            _, _, _, C_final = devoltilization(T_init, M_l, params, final_only=True, yita=1.2, hydrodynamic_only=True)
             C_final_values.append(C_final)
-            _, _, _, C_final_gamma_non_1 = devoltilization(T_init, M_l, params, final_only=True, yita=1.02, hydrodynamic_only=True)
+            _, _, _, C_final_gamma_non_1 = devoltilization(T_init, M_l, params, final_only=True, yita=1.4, hydrodynamic_only=True)
             C_final_values_gamma_non_1.append(C_final_gamma_non_1)
             _, _, _, C_final_reaching_1 = devoltilization(T_init, M_l, params, final_only=True, yita=1.005, hydrodynamic_only=True)
             C_final_values_reaching_1.append(C_final_reaching_1)
-        plt.plot(r_values/1e6, C_final_values, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.0$', color=cmap[i])
-        plt.plot(r_values/1e6, C_final_values_gamma_non_1, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.02$', linestyle='--', color=cmap[i])
+        plt.plot(r_values/1e6, C_final_values, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.2$', color=cmap[i])
+        plt.plot(r_values/1e6, C_final_values_gamma_non_1, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.4$', linestyle='--', color=cmap[i])
         plt.plot(r_values/1e6, C_final_values_reaching_1, label=r'$T_{init}$='+f'{T_init}K, '+ r'$\gamma=1.005$', linestyle=':', color=cmap[i])
     plt.xscale('log')
     plt.xlim(1e5/1e6, 5e7/1e6)
     plt.xlabel(r'Planet Radius ($10^6$ m)')
-    plt.ylabel('Final Concentration Ratio')
+    plt.ylabel('Final C / $C_0$')
     plt.grid(color='grey', linestyle='--', linewidth=0.5)
     plt.legend(loc = 'lower right')
-    plt.savefig('isothermal_devolatilization.eps')
+    plt.savefig('isothermal_devolatilization.pdf')
 
 def test_cooling_with_jeans():
     """
@@ -891,6 +891,29 @@ def test_cooling_with_jeans():
     ax_C.text(0.15, 0.15, 'r=' + format_float(params.r, significant_digits=2, max_decimal_places=1)+' m', transform=ax_C.transAxes, fontsize=12)
     plt.tight_layout()
     plt.savefig('cooling_with_jeans.pdf')
+
+def vi_cooling_processes():
+    """
+    Plot the cooling processes of a magma ocean with T_init = 3000K, M_l = 0.7 * M_tot, r = 1.7e6 m.
+    The x-axis is time in log scale, and the y-axis is the temperature.
+    Plot different gamma in different color lines.
+    """
+    import matplotlib.pyplot as plt
+    T_init = 3500
+    r = 1e6
+    params = MagmaOceanParameters(r=r)
+    plt.figure(figsize=(6,5))
+    for yita in [1.4, 1.2, 1.05]:
+        T_array, t_total_array, M_loss_array, C_array = devoltilization(T_init, params.M_tot * 0.7, params, final_only=False, yita=yita)
+        label = r'$\gamma$='+format_float(yita)
+        plt.plot(np.array(t_total_array)/365.25/24/3600, T_array, label=label)
+    plt.text(0.15, 0.15, 'r=' + format_float(params.r, significant_digits=2, max_decimal_places=1)+' m', transform=plt.gca().transAxes, fontsize=12)
+    #plt.xscale('log')
+    plt.xlabel('Time (year)')
+    plt.ylabel('Temperature (K)')
+    plt.legend()
+    plt.grid(color='white', linestyle='--', linewidth=0.5)
+    plt.savefig('cooling_processes.pdf')
 
 def figure_Calogero_2025_figure2_ac():
     """

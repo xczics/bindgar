@@ -484,6 +484,8 @@ class CollisionResult():
             self.Mtotal = kwargs['Mtotal']
         else:
             self.Mtotal = 1.0
+        if "force_merge" not in self._magma_kwargs:
+            self._magma_kwargs["force_merge"] = True
     def _magma_init(self, **kwargs) -> Model:
         if 'impact_angle' not in kwargs:
             impact_angle = 0.0
@@ -571,12 +573,12 @@ def boundary_magma_model(draw_directly=False) -> Any:
     """
     import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
-    MIN_M = 0.03
+    MIN_M = 0.003
     MAX_M = 40
-    MIN_V = 0.3
-    MAX_V = 9
-    M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 40)
-    v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 30)
+    MIN_V = 0.9
+    MAX_V = 12
+    M_array = np.logspace(np.log10(MIN_M), np.log10(MAX_M), 80)
+    v_array = np.logspace(np.log10(MIN_V), np.log10(MAX_V), 80)
     gamma_array = np.array([0.01, 0.02, 0.03, 0.04, 0.05, 0.08, 0.1, 0.2, 0.3, 0.4, 0.5])
     from ..datahandle import SimulationOutputData
     csv_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nakajima", "sph_input.txt")
@@ -720,7 +722,7 @@ def boundary_magma_model(draw_directly=False) -> Any:
         # 填充内插区域维红色，外插但可运行区域为蓝色，其他区域为灰色。高亮 melt fraction 大于 0.1 的区域。并投上输入散点。
         colors = np.zeros(intro_area_array.shape + (4,))
         colors[~canrun_area_array] = [0.5, 0.5, 0.5, 0.0]
-        colors[intro_area_array] = [0.8, 0.0, 0.0, 0.8]
+        colors[intro_area_array] = [0.8, 0.0, 0.0, 0.5]
         colors[canrun_area_array & ~intro_area_array] = [0.0, 0.0, 1.0, 0.0]
         gamma_grid, M_grid, v_grid = np.meshgrid(gamma_array, M_array, v_array)
         log_M_grid = np.log10(M_grid)
@@ -729,7 +731,7 @@ def boundary_magma_model(draw_directly=False) -> Any:
                   color=colors.reshape(-1,4), marker='x', s=1) # type: ignore
         log_sph_inputs_x = np.log10(sph_inputs[:,0])
         log_sph_inputs_y = np.log10(sph_inputs[:,3])
-        ax_3d.scatter(log_sph_inputs_x, log_sph_inputs_y, sph_inputs[:,1], color='red', marker='o', label='Nakajima SPH inputs', s=10) # type: ignore
+        ax_3d.scatter(log_sph_inputs_x, log_sph_inputs_y, sph_inputs[:,1], color='red', marker='o', label='Nakajima SPH inputs', s=15) # type: ignore
         # 添加y=0 平面 和z=0.1 平面
         # y=0 平面
         ax_3d.plot_surface(np.log10(np.array([[MIN_M,MAX_M], [MIN_M, MAX_M]])),#type: ignore
@@ -755,7 +757,7 @@ def boundary_magma_model(draw_directly=False) -> Any:
             col = (sub_index + 1) // SUB_PLOT_ROWS
             ax_2d = fig.add_subplot(fig_grid[row, col])
             ax_2d.set_xlim(MIN_M, MAX_M)
-            ax_2d.set_ylim(0.7, MAX_V)
+            ax_2d.set_ylim(0.9, MAX_V)
             gamma = SUB_PLOT_GAMMAS[sub_index]
             ax_2d.set_title(f'Gamma = {gamma:.2f}')
             back_ground_it(ax_2d, gamma_draw=gamma, gamma_filter=gamma_filters[sub_index], register_contour=sub_index==0)
@@ -1208,7 +1210,8 @@ def main() -> None:
 if __name__ == "__main__":
     # main()
     # test_magma_model()
-    # boundary_magma_model(draw_directly=True)
+    boundary_magma_model(draw_directly=True)
+    """
     bug = [                           #(0.01, 0),
                                       (0.03, 0),
                                       (0.1, 0),
@@ -1231,4 +1234,4 @@ if __name__ == "__main__":
                     figure_file_name = "fTCm_contour.pdf",
                     in_kg=True
                     )
-
+    """
