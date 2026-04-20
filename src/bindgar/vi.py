@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 import numpy as np  # type: ignore
@@ -7,6 +7,7 @@ from .physics import M_SUN, M_EARTH
 from .input import InputLoader, InputAcceptable
 from .cli import register_command, _dynamic_import_analyze_modules
 import sys
+import os
 
 subplot_drawers = {}
 subplot_inputers = {}
@@ -170,6 +171,7 @@ def draw_multi_plots():
     plt.tight_layout()
     plt.savefig(figure_file)
 
+GENERATED_SIGNATURES: Dict[str, Any] = {}
 
 def register_subplot_drawer(name: str, params: InputAcceptable):
     """
@@ -185,13 +187,20 @@ def register_subplot_drawer(name: str, params: InputAcceptable):
             loader = InputLoader(params)
             input_params = loader.load_by_kwargs(kwargs)
             func(ax, input_params)
+        loader = InputLoader(params)
+        if os.getenv("BINDGAR_DEV", "0").lower() in ["1", "true"]:
+            sig = f"def call_{name.replace('-', '_')}" + "(ax: Axes, " + ', '.join(loader.dump_param_list()) + ") -> None:" + "\n" +"    \"\"\" \n"
+            sig += loader.document()
+            sig += "\n    \"\"\""
+            sig += "\n    ... \n"
+            GENERATED_SIGNATURES[name] = sig
         subplot_drawers[name] = wrapper
         subplot_inputers[name] = params
         # 将函数导出到当前模块的全局命名空间
         module = sys.modules[__name__]
         export_function.__name__ = f"call_{name.replace('-', '_')}"
         export_function.__module__ = __name__
-        export_function.__doc__ = InputLoader(params).document()
+        export_function.__doc__ = loader.document()
         
         # 将函数设置为模块属性
         setattr(module, f"call_{name.replace('-', '_')}", export_function)
@@ -199,3 +208,66 @@ def register_subplot_drawer(name: str, params: InputAcceptable):
     return decorator
 
 _dynamic_import_analyze_modules()
+
+original_def = """
+from typing import List, Tuple, Optional, Dict, Any
+from matplotlib.axes import Axes
+import matplotlib.pyplot as plt
+import numpy as np  # type: ignore
+from numpy import ndarray
+from .physics import M_SUN, M_EARTH
+from .input import InputLoader, InputAcceptable
+from .cli import register_command, _dynamic_import_analyze_modules
+import sys
+import os
+
+def scatter_positions(ax: Axes, xym_arrays: ndarray, **kwargs) -> None:
+    ...
+
+def scatter_ae(ax: Axes, 
+               a_array: ndarray, e_array: ndarray, 
+               m_array: Optional[ndarray] = None,
+               **kwargs) -> None:
+    ...
+
+def scatter_am(ax: Axes,
+                a_array: ndarray, m_array: ndarray, 
+                **kwargs) -> None:
+     ...
+
+def register_subplot_drawer(name: str, params: InputAcceptable):
+    ...
+
+"""
+
+import atexit
+def _update_pyi():
+    # check if "BINDGAR_DEV" in the enviroment variable, and also check if such value is "1" or "true"
+    if os.getenv("BINDGAR_DEV", "0").lower() not in ["1", "true"] or not GENERATED_SIGNATURES:
+        return
+    
+    # 获取当前模块的文件名，将 .py 替换为 .pyi
+    current_file = sys.modules[__name__].__file__
+    if not current_file or not current_file.endswith(".py"):
+        return
+    
+    pyi_path = current_file + "i"
+    
+    content = [
+        "# This file is auto-generated during development. Do not edit manually.",
+        "from matplotlib.axes import Axes",
+        "from typing import Any, Optional",
+        "\n"
+    ]
+    
+    for sig in GENERATED_SIGNATURES.values():
+        content.append(sig)
+
+    with open(pyi_path, "w", encoding="utf-8") as f:
+        f.write(original_def)
+        f.write("\n".join(content))
+    print(f"\n[Dev Mode] Type stubs updated in {pyi_path}")
+
+# 注册退出钩子，程序跑完自动写文件
+if os.getenv("BINDGAR_DEV", "0").lower() in ["1", "true"]:
+    atexit.register(_update_pyi)

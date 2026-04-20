@@ -128,7 +128,7 @@ def rho_surface_from_T (T: float, M_mol: float) -> float:
 def isothermal_sound_speed (T: float, M_mol: float) -> float:
     return math.sqrt(( R_gas * T ) / M_mol)
 
-def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: float=1.2, exact_solve: bool = False):
+def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: float=1.2, exact_solve: bool = False, original_Calogero: bool = False):
     r""" Calculate the surface outflow velocity.
     u_s = c_s \sqrt{ 2 * (\frac{\yita - 1}{3 \yita - 1}
                         (\frac{\yita}{\yita - 1} - \frac{GM}{c_s^2r})) ^ \frac{3 \yita - 1}{\yita -1}
@@ -148,11 +148,22 @@ def surface_outflow_velocity (T: float, parameter: MagmaOceanParameters, yita: f
     c_s2r = c_s ** 2 * parameter.r
     GM = G * parameter.M_tot
     if yita != 1.0:
-        yita_factor = (yita - 1)/(3 * yita - 1)
-        first_part = (yita_factor*((yita / (yita - 1))-(GM / c_s2r))) ** (1 / yita_factor) if (yita / (yita - 1))-(GM / c_s2r) > 0 else 0
-        second_part = (GM / (4 * c_s2r)) ** (4 * yita_factor)
-        third_part = (2 / yita) ** ( 2 / (yita - 1 ))
-        u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
+        if original_Calogero:
+            yita_factor = (yita - 1)/(3 * yita - 1)
+            first_part = (yita_factor*((yita / (yita - 1))-(GM / c_s2r))) ** (1 / yita_factor) if (yita / (yita - 1))-(GM / c_s2r) > 0 else 0
+            second_part = (GM / (4 * c_s2r)) ** (4 * yita_factor)
+            third_part = (2 / yita) ** ( 2 / (yita - 1 ))
+            u_s = c_s * math.sqrt(2*first_part*second_part*third_part) if first_part > 0 else 0
+        else:
+            beta = (yita - 1) /(5 - 3 * yita)
+            first_part = (yita/(yita - 1))-(GM / c_s2r)
+            if first_part <= 0:
+                return 0.0
+            x = (beta * first_part) ** (1/beta) * ((GM / (4 * c_s2r)) ** 4) * ((2 / yita) ** ( 2 / (yita - 1 )))
+            new_first_part = x + (yita/(yita - 1))-(GM / c_s2r)
+            #x = (beta * new_first_part) ** (1/beta) * ((GM / (4 * c_s2r)) ** (4*beta)) * ((2 / yita) ** ( 2 / (yita - 1 )))
+            x = (beta * new_first_part) ** (1/beta) * ((GM / (4 * c_s2r)) ** 4) * ((2 / yita) ** ( 2 / (yita - 1 )))
+            u_s = c_s * math.sqrt(2 * x) if first_part > 0 else 0
     else:
         r_c = GM / (2 * c_s ** 2)
         r_s = parameter.r
@@ -440,6 +451,74 @@ def devoltilization(T_init: float, M_l_init: float,
         return T, t_total, M_loss_total, C
     else:
         return T_array, t_total_array, M_loss_array, C_array
+    
+def devoltilization_Ds(T_init: float, M_l_init: float, 
+                    params: MagmaOceanParameters, dT: float=5e-4, 
+                    T_end: float=1200,
+                    yita: float=1.2,
+                    hydrodynamic_only: bool=True,
+                    final_only: bool=True,
+                    update_params: bool = False,
+                    **kwargs) -> tuple:
+    """
+    similar to devolatilization, but calculate a serious of results with different distribution coefficients.
+    """
+    distribution_kwargs = {key: kwargs[key] for key in ['version_D'] if key in kwargs}
+    if 'D_shiftes' in kwargs:
+        D_shiftes = kwargs['D_shiftes']
+        D_shift10s = [None] * len(D_shiftes)
+    elif 'D_shift10s' in kwargs:
+        D_shift10s = kwargs['D_shift10s']
+        D_shiftes = [None] * len(D_shift10s)
+    else:
+        raise ValueError("Either D_shiftes or D_shift10s must be provided in kwargs.")
+    T = T_init
+    if T_init > 10000:
+        print(f"Warning: T_init {T_init}K is too high, reset it to 10000K.")
+        T = 10000
+    M_l = M_l_init
+    if M_l_init <= 0:
+        if final_only:
+            return T, 0.0, 0.0, [1.0] * len(D_shiftes)
+        else:
+            return [T], [0.0], [0.0], [[1.0] * len(D_shiftes)]
+    t_total = 0.0
+    M_loss_total = 0.0
+    Cs = [1.0] * len(D_shiftes)
+    T_array = []
+    t_total_array = []
+    M_loss_array = []
+    C_array = []
+    if not final_only:
+        T_array.append(T)
+        t_total_array.append(float(t_total))
+        M_loss_array.append(float(M_loss_total))
+        C_array.append(Cs.copy())
+    while T > T_end and M_l > 0:
+        mass_loss_rate = pMpt(T, params, yita=yita, hyrodynamic_only=hydrodynamic_only)
+        cooling_rate = float(pTpt(T, M_l, params, mass_loss_rate))   
+        T_decrease = dT * T
+        Dt = T_decrease / cooling_rate
+        t_total += Dt
+        M_loss_step = float(mass_loss_rate * Dt)
+        M_loss_total += M_loss_step
+        for i in range(len(Cs)):
+            distribution_kwargs_i = {'shift10': D_shift10s[i],**distribution_kwargs} if D_shift10s[i] is not None else {'shifte': D_shiftes[i],**distribution_kwargs}
+            Cs[i] *= float(step_concentration (T, M_l, M_loss_step, **distribution_kwargs_i))
+        M_l -= M_loss_step
+        if update_params:
+            params.mantle_loss(M_loss_step)
+        T -= T_decrease
+        if not final_only:
+            T_array.append(T)
+            t_total_array.append(t_total)
+            M_loss_array.append(M_loss_total)
+            C_array.append(Cs.copy())
+    if final_only:
+        return T, t_total, M_loss_total, *Cs
+    else:
+        return T_array, t_total_array, M_loss_array, *C_array
+
 
 def main():
     """

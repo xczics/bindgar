@@ -86,6 +86,16 @@ class InputLoader:
         deep_update(config, kwargs)
         return self._update_link_parameters(config)
 
+    def dump_param_list(self) -> List[str]:
+        """导出所有参数列表，用于生成类型注解"""
+        param_list = []
+        for name, defs in self.param_defs.items():
+            if isinstance(defs, InputLoader):
+                param_list.append(f"{name}: dict|None = None")
+            else:
+                param_list.append(f"{name} = None")
+        return param_list
+
     def generate_default_dict(self) -> Dict[str, Any] :
         # 生成默认配置字典
         default_config = {}

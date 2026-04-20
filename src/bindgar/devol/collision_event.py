@@ -4,18 +4,21 @@ In this module, we will handle the devoltilization during a single collision eve
 
 from typing import Dict, Optional,List, Tuple, Self, Set, Callable, Any, Literal
 import numpy as np
+from numpy import ndarray
 from scipy.spatial import Delaunay
 from ..physics import convert_factor_from_auptu_to_kmps, AU2M, M_EARTH, M_SUN, G, M_Mars, impact_angle_radians
 import math
 from functools import cached_property, lru_cache
 from .nakajima.melt_model import Model
-from .magma_cooling import MagmaOceanParameters,devoltilization
+from .magma_cooling import MagmaOceanParameters,devoltilization,devoltilization_Ds
 from ..output import SimulationOutput
 from ..common import statstic_time, format_float
 from datetime import datetime
 import os
 import pickle
 import atexit
+
+FORCE_RENEW = False
 
 magma_produce_keys = ["entropy0","outputfigurename","use_tex","silent","force_merge"]
 cooling_keys = ["rho_B","rho_M","kapa","v" ,"k","C_p","alpha_V","g_s","r","L","M_mol"]
@@ -164,6 +167,20 @@ class CollisionEvent():
             kwargs["T_end"] = T_0
         result = devoltilization(T_init = T_0+delta_T, M_l_init = melt_mass, params = cooling_params, **kwargs)
         return result
+    
+    def devoltilize_Ds(self, T_0: float=1200, D_shiftes: List[float] | ndarray | None = None, **kwargs) -> tuple:
+        """
+        Do devolatilization calculation for a list of D_shiftes, and return the results in a list.
+        """
+        cooling_params = self.cooling_params
+        melt_mass = self.melt_mass
+        delta_T = self.melt_T_increase(C_p=cooling_params.C_p)
+        if "T_end" not in kwargs:
+            kwargs["T_end"] = T_0
+        if D_shiftes is None:
+            raise ValueError("D_shiftes should be provided for devoltilize_Ds method.")
+        return devoltilization_Ds(T_init = T_0+delta_T, M_l_init = melt_mass, params = cooling_params, D_shiftes = D_shiftes, **kwargs)
+
     @cached_property
     def av_du_gain(self) -> float:
         if self.melt_fraction > 1e-6:
@@ -237,12 +254,20 @@ class SimulationMeltsEvolution():
         self._current_point = 0
         original_path = self.simulation.path
         original_dir = os.path.dirname(original_path)
+        self.debug = False
+        if self.simulation.get_input_params("Output name") == "CMMNMr4":
+            self.debug = True
         melt_cache_file_name = ".meltfrac" + self.simulation.get_input_params("Output name").replace(" ","-") + ".npy"
         evol_cache_file_name = ".meltevol" + self.simulation.get_input_params("Output name").replace(" ","-") + ".pkl"
+        collision_result_cache_file_name = ".collisionresult" + self.simulation.get_input_params("Output name").replace(" ","-") + ".npy"
+        accumalatvie_result_cache_file_name = ".accumresult" + self.simulation.get_input_params("Output name").replace(" ","-") + ".pkl"
         self._cache_melt_frac_file_path = os.path.join(original_dir, melt_cache_file_name)
         self._cache_evol_file_path = os.path.join(original_dir, evol_cache_file_name)
+        self._cache_collision_result_file_path = os.path.join(original_dir, collision_result_cache_file_name)
+        self._cache_accumulative_result_file_path = os.path.join(original_dir, accumalatvie_result_cache_file_name)
         sim_finish_time = self.simulation.datetime_finished
         self._new_melt_frac_since_last_cache = 0
+        self._new_event_result_since_last_cache = 0
         if os.path.exists(self._cache_melt_frac_file_path):
             cache_melt_frac_time = datetime.fromtimestamp(os.path.getmtime(self._cache_melt_frac_file_path))
             if cache_melt_frac_time < sim_finish_time:
@@ -258,7 +283,32 @@ class SimulationMeltsEvolution():
                 self._melt_evolution_particles = pickle.load(open(self._cache_evol_file_path, "rb"))
         else:
             self._melt_evolution_particles = {}
+        if os.path.exists(self._cache_collision_result_file_path):
+            cache_collision_result_time = datetime.fromtimestamp(os.path.getmtime(self._cache_collision_result_file_path))
+            if cache_collision_result_time < sim_finish_time:
+                print("The collision result cache file is outdated. It will be updated after new melt fractions are calculated.")
+                os.remove(self._cache_collision_result_file_path)
+                self._collision_results = np.nan * np.ones((len(self.simulation.collisions)+1, 4+10), dtype=float)
+            else:
+                self._collision_results = np.load(self._cache_collision_result_file_path)
+        else:
+            self._collision_results = np.nan * np.ones((len(self.simulation.collisions)+1, 4+10), dtype=float)
+        if os.path.exists(self._cache_accumulative_result_file_path):
+            cache_accumulative_result_time = datetime.fromtimestamp(os.path.getmtime(self._cache_accumulative_result_file_path))
+            if cache_accumulative_result_time < sim_finish_time or FORCE_RENEW:
+                print("The accumulative result cache file is outdated. It will be updated after new melt fractions are calculated.")
+                os.remove(self._cache_accumulative_result_file_path)
+                self._accumulative_results = {}
+            else:
+                try:
+                    self._accumulative_results = pickle.load(open(self._cache_accumulative_result_file_path, "rb"))
+                except Exception as e:
+                    print("Failed to load accumulative result cache file. It will be recalculated. Error:", e)
+                    self._accumulative_results = {}
+        else:
+            self._accumulative_results = {}
         self._evol_cache_updated = True
+        self._evol_depletion_updated = True
         self._unexpected_melt_event = set()
     @cached_property
     def final_particles(self) -> List[int]:
@@ -318,6 +368,50 @@ class SimulationMeltsEvolution():
         impactor = self.impactor
         return self.particle_has_chain(impactor)
     
+    def cache_collision_results(self):
+        np.save(self._cache_collision_result_file_path, self._collision_results)
+        self._new_event_result_since_last_cache = 0
+
+    def init_results_title(self):
+        if np.all(np.isnan(self._collision_results)):
+            self._collision_results[0,4:] = np.linspace(-2,4,10)
+    
+    def get_shifte_s(self) -> np.ndarray:
+        shifte_s = np.zeros(11)
+        shifte_s[1:] = self._collision_results[0,4:]
+        return shifte_s
+
+    def calculate_collision_results(self) -> None:
+        """
+        An util function, to calculate all the collision results for all events in the simulation, and save them in the cache file.
+        """
+        # Frist row is table title, it should be [Nan]*4 + [D-shifte-values1, D-shifte-values2,...] for all the parameters we want to save.
+        self.init_results_title()
+        shifte_s = self.get_shifte_s()
+        for i in range(len(self.simulation.collisions)):
+            if np.any(np.isnan(self._collision_results[i+1,:3])) or np.all(np.isnan(self._collision_results[i+1,3:])):
+                event = self.melt_events(i)
+                f = event.melt_fraction
+                T = event.melt_T_increase() + 1200
+                if f < 1e-6 or np.isnan(f) or np.isnan(T):
+                    f = 0.0
+                    T = 1200.0
+                    self._collision_results[i+1,:3] = [f,T,0.0]
+                    self._collision_results[i+1,3:] = 1.0
+                    continue
+                calc_result = event.devoltilize_Ds(D_shiftes=shifte_s, final_only=True)
+                m = calc_result[2] / event.total_mass
+                c0 = calc_result[3]
+                if f > 1.0:
+                    f = 1.0
+                if T > 10000:
+                    T = 10000
+                if m > 1.0:
+                    m = 1.0
+                self._collision_results[i+1,:4] = [f,T,m,c0]
+                self._collision_results[i+1,4:] = calc_result[4:]
+        self.cache_collision_results()
+    
     def particle_has_chain(self, particle_index: int) -> bool:
         history = self.simulation.particle_history(particle_index)["history"]
         if history is None or len(history) == 0:
@@ -373,6 +467,41 @@ class SimulationMeltsEvolution():
         return event
     
     @statstic_time
+    def get_collision_result(self,i:int) -> ndarray:
+        self.init_results_title()
+        if np.any(np.isnan(self._collision_results[i+1,:3])) or np.all(np.isnan(self._collision_results[i+1,3:])):
+            event = self.melt_events(i)
+            f = event.melt_fraction
+            T = event.melt_T_increase() + 1200
+            if f < 1e-6 or np.isnan(f) or np.isnan(T):
+                f = 0.0
+                T = 1200.0
+                self._collision_results[i+1,:3] = [f,T,0.0]
+                self._collision_results[i+1,3:] = 1.0
+                self._new_event_result_since_last_cache += 1
+                if self._new_event_result_since_last_cache >= 5 or np.all(~np.isnan(self._collision_results[:,0])):
+                    self.cache_collision_results()
+                return self._collision_results[i+1,:]
+            shifte_s = self.get_shifte_s()
+            calc_result = event.devoltilize_Ds(D_shiftes=shifte_s, final_only=True)
+            m = calc_result[2] / event.total_mass
+            c0 = calc_result[3]
+            if f > 1.0:
+                f = 1.0
+            if T > 10000:
+                T = 10000
+            if m > 1.0:
+                m = 1.0
+            self._collision_results[i+1,:4] = [f,T,m,c0]
+            self._collision_results[i+1,4:] = calc_result[4:]
+            if self._new_event_result_since_last_cache >= 5 or np.all(~np.isnan(self._collision_results[:,0])):
+                self.cache_collision_results()
+            self.cache_collision_results()
+            return self._collision_results[i+1,:]
+        else:
+            return self._collision_results[i+1,:]
+
+    @statstic_time
     def get_event_melt_fractions(self,i:int) -> float:
         if self._melt_fractions_event is None:
             #cache the melt fractions for all events in the disk.
@@ -402,6 +531,64 @@ class SimulationMeltsEvolution():
                 self._new_melt_frac_since_last_cache = 0
             return melt_fraction
     
+    @lru_cache(maxsize=None)
+    @statstic_time
+    def get_particle_collisional_results(self,i:int,dump_cache=True) -> ndarray:
+        particle_history = self.simulation.particle_history(i)["history"]
+        init_values = np.ones(4+10, dtype=float) # [m_tot,f,c0,c_shifte1,c_shifte2,...,c_shifte10,time]
+        init_values[0] = 0.0 # intial m_tot by 0,0
+        init_values[1] = 0.0 # initial melt fraction is 0, and initial c0 is 1.0, and initial shiftes are 1.0
+        if self.debug:
+            print(f"Calculating collisional results for particle {i}. History length: {0 if particle_history is None else len(particle_history)}.")
+        if particle_history is None or len(particle_history) == 0:
+            return init_values
+        if i in self._accumulative_results:
+            return self._accumulative_results[i][-1,:]
+        else:
+            self._accumulative_results[i] = np.zeros((len(particle_history)+1, 4+10))
+            self._accumulative_results[i][0,:] = init_values
+        for index_history, (event, collision_index) in  enumerate(particle_history):
+            new_result = self.get_collision_result(collision_index)
+            bodyi = event["indexi"]
+            bodyj = event["indexj"]
+            massi:float = event["mi"]
+            massj:float = event["mj"]
+            time = event["time"]
+            if bodyi == i:
+                resulti = init_values
+                resultj = self.get_particle_collisional_results(bodyj, dump_cache=False)
+                origin_mass = massi
+            else:
+                resultj = init_values
+                resulti = self.get_particle_collisional_results(bodyi, dump_cache=False)
+                origin_mass = massj
+            if index_history == 0:
+                self._accumulative_results[i][index_history,0] = origin_mass
+            self._accumulative_results[i][index_history+1,0] = massi + massj
+            inherited_f = (resulti[1] * massi + resultj[1] * massj) / (massi + massj)
+            inherited_cs = (resulti[2:13] * massi + resultj[2:13] * massj) / (massi + massj)
+            if self.debug:
+                print(f"Particle {i}, history index {index_history}, collision index {collision_index}, new result melt fraction: {new_result[0]:.3f}, inherited melt fraction: {inherited_f:.3f}.")
+                print(f"c_0 from body {bodyi}: {resulti[2]:.3f}, c_0 from body {bodyj}: {resultj[2]:.3f}, inherited c_0: {inherited_cs[0]:.3f}, new c_0: {new_result[3]:.3f}.")
+            self._accumulative_results[i][index_history+1,1] = inherited_f + new_result[0]
+            if new_result[0] < 1e-6 or np.isnan(new_result[0]):
+                new_result[0] = 0.0
+                self._accumulative_results[i][index_history+1,2:13] = inherited_cs
+            else:
+                self._accumulative_results[i][index_history+1,2:13] = inherited_cs * ( new_result[3:14] * new_result[0]  +  (1-new_result[0]) )
+            if self.debug:
+                print(f"After collision index {collision_index}, particle {i} has melt fraction {self._accumulative_results[i][index_history+1,1]:.3f}, c_0: {self._accumulative_results[i][index_history+1,2]:.3f}.")
+                print(f"Shiftes after collision index {collision_index}: {self._accumulative_results[i][index_history+1,3:5]}.")
+            self._accumulative_results[i][index_history+1,13] = time
+            self._collision_index2particle_evolution_index[collision_index] = (i, index_history+1)
+            if dump_cache:
+                with open(self._cache_accumulative_result_file_path, "wb") as f:
+                    pickle.dump(self._accumulative_results, f)
+                self._evol_depletion_updated = True
+            else:
+                self._evol_depletion_updated = False
+        return self._accumulative_results[i][-1,:]
+
     @lru_cache(maxsize=None)
     @statstic_time
     def get_particle_melt_fractions(self,i:int,dump_cache=True) -> float:
@@ -458,19 +645,52 @@ class SimulationMeltsEvolution():
         else:
             self.get_particle_melt_fractions(i)
             return self._melt_evolution_particles[i]
+    def get_particle_collisional_evolution(self,i:int) -> np.ndarray:
+        if i in self._accumulative_results:
+            return self._accumulative_results[i]
+        else:
+            self.get_particle_collisional_results(i)
+            return self._accumulative_results[i]
+    def rm_cache_files(self, choice: str = "all") -> None:
+        if choice in ["all","melt_fraction"]:
+            if os.path.exists(self._cache_melt_frac_file_path):
+                os.remove(self._cache_melt_frac_file_path)
+                self._melt_fractions_event = None
+        if choice in ["all","evolution"]:
+            if os.path.exists(self._cache_evol_file_path):
+                os.remove(self._cache_evol_file_path)
+                self._melt_evolution_particles = {}
+        if choice in ["all","collision_result"]:
+            if os.path.exists(self._cache_collision_result_file_path):
+                os.remove(self._cache_collision_result_file_path)
+                self._collision_results = np.nan * np.ones((len(self.simulation.collisions)+1, 4+10), dtype=float)
+        if choice in ["all","accumulative_result"]:
+            if os.path.exists(self._cache_accumulative_result_file_path):
+                os.remove(self._cache_accumulative_result_file_path)
+                self._accumulative_results = {}
     # 在程序退出，或对象被GC时，保存缓存np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
     # 但需要注意，程序退出时，numpy可能已经被卸载了。需要设置这个操作最先执行。
     def _final_save(self):
         if self._melt_fractions_event is not None and self._new_melt_frac_since_last_cache > 0:
             np.save(self._cache_melt_frac_file_path, self._melt_fractions_event)
-            self._new_melt_frac_since_last_cache
+            self._new_melt_frac_since_last_cache = 0
         if hasattr(self, "_melt_evolution_particles") and not self._evol_cache_updated:
             with open(self._cache_evol_file_path, "wb") as f:
                 pickle.dump(self._melt_evolution_particles, f)
             self._evol_cache_updated = True
+        if hasattr(self, "_collision_results") and np.any(~np.isnan(self._collision_results)) and self._new_event_result_since_last_cache > 0:
+            np.save(self._cache_collision_result_file_path, self._collision_results)
+            self._new_event_result_since_last_cache = 0
+        if not self._evol_depletion_updated:
+            with open(self._cache_accumulative_result_file_path, "wb") as f:
+                pickle.dump(self._accumulative_results, f)
+            self._evol_depletion_updated = True
     def __del__(self):
-        if self._new_melt_frac_since_last_cache > 0 or not self._evol_cache_updated:
-            self._final_save()
+        try:
+            if self._new_melt_frac_since_last_cache > 0 or not self._evol_cache_updated or (hasattr(self, "_collision_results") and np.any(~np.isnan(self._collision_results)) and self._new_event_result_since_last_cache > 0) or not self._evol_depletion_updated:
+                self._final_save()
+        except:
+            pass
 
 # Only to draw the test figures, do not use anymore.
 class CollisionResult():
@@ -1210,8 +1430,8 @@ def main() -> None:
 if __name__ == "__main__":
     # main()
     # test_magma_model()
-    boundary_magma_model(draw_directly=True)
-    """
+    # boundary_magma_model(draw_directly=True)
+    
     bug = [                           #(0.01, 0),
                                       (0.03, 0),
                                       (0.1, 0),
@@ -1229,9 +1449,9 @@ if __name__ == "__main__":
     gamma_list = [0.01, 0.03, 0.1, 0.2, 0.5]
     angle_list = [0, 30, 45, 60, 90]
     f_T_C_m_contour(draw_directly=True,
-                    # gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list],
-                    gamma_angle_list=bug,
+                    gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list],
+                    # gamma_angle_list=bug,
                     figure_file_name = "fTCm_contour.pdf",
-                    in_kg=True
+                    #in_kg=True
                     )
-    """
+
