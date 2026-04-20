@@ -51,7 +51,7 @@ def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float
     Returns:
         float: Average temperature of the magma ocean in K.
     """
-    A = parameter.kapa * parameter.v / (parameter.rho_M * parameter.g_s # type: ignore
+    A = parameter.kapa * parameter.v / (parameter.g_s * parameter.rho_M  # type: ignore
                                          * parameter.alpha_V ) 
     B = 2 * parameter.sb_factor * Stefan_Boltzmann / parameter.k
     if not diff:
@@ -1286,6 +1286,9 @@ def vi_effect_D():
     plt.grid(color='grey', linestyle='--', linewidth=0.5)
     plt.savefig('effect_D.pdf')
 
+def double_check_eqn1():
+    param = MagmaOceanParameters(r=1e6)
+    print(T_s_from_T(1400,param))
 
 
 if __name__ == "__main__":
