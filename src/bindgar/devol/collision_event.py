@@ -1449,9 +1449,9 @@ if __name__ == "__main__":
     gamma_list = [0.01, 0.03, 0.1, 0.2, 0.5]
     angle_list = [0, 30, 45, 60, 90]
     f_T_C_m_contour(draw_directly=True,
-                    gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list],
-                    # gamma_angle_list=bug,
-                    figure_file_name = "fTCm_contour.pdf",
+                    #gamma_angle_list=[ (gamma, angle) for gamma in gamma_list for angle in angle_list],
+                    gamma_angle_list=bug,
+                    # figure_file_name = "fTCm_contour.pdf",
                     #in_kg=True
                     )
 
