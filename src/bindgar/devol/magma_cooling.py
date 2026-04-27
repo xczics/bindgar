@@ -4,26 +4,57 @@ import math
 import numpy as np
 from ..physics import Stefan_Boltzmann, G, R_gas, k_b
 from ..common import format_float
+import warnings
 
 @dataclass(kw_only=True)
 class MagmaOceanParameters:
     rho_B: float = 3500 # Bulk Density, kg m-3
     rho_M: float = 3000 # Magma Ocean Density, kg m-3
-    kapa: float = 6e-7 # Thermal Diffusivity (= k/rho_MC_P), m2 s-2
-    v: float = 1e2 # Magma Viscosity, Pa s
+    M_tot: float = None # Total Mass, kg # type: ignore
+    kapa: float|None = None # Thermal Diffusivity (= k/rho_MC_P), m2 s-2
+    v: float|None = None # Magma Viscosity (kinetic viscosity), m2 s-1 
     k: float = 3 # Thermal Conductivity, W m-1 K-1
     C_p: float = 1200 # Specific Heat Capacity, J kg-1 K-1
-    alpha_V: float = 2e-5 # Thermal Expansivity, K-1
+    alpha_V: float = 3e-5 # Thermal Expansivity, K-1
     g_s: Optional[float] = None # Surface Gravity, m s-2
     r: float = 1.7e6 # Planet Radius, m
     L: float = 5e6 # Latent Heat of vapourization, J kg-1
     M_mol: float = 0.04 # Molar Mass of the Atmosphere, kg mol-1
     sb_factor: float = 1.0 # Black body radiation factor, dimensionless
     sigma: float = 3e-19 # Mean cross section of the molecular of SiO, in m2.
+    eta: float = 1e3 # Magma Viscosity (dynamic viscosity) Pa s
+    silence: bool = False # Whether to print the warning when the eta is calculated from v, not the input eta.
     def __post_init__(self):
+        if self.M_tot is not None:
+            self.calc_r()
+            if not self.silence:
+                warnings.warn("r is calculated from given M_tot, not the input/ default value. Or keep the M_tot as None to use given r.", UserWarning)
+        else:
+            self.calc_M_tot()
         if self.g_s is None:
             self.g_s = (4/3) * math.pi * G * self.rho_B * self.r # m s-2
-        self.M_tot = (4/3) * math.pi * self.r ** 3 * self.rho_B
+        if self.v is not None:
+            self.calc_eta()
+            if not self.silence:
+                warnings.warn("eta is calculated from given v, not the input/ default value. Or keep the v as None to use given eta.", UserWarning)
+        else:
+            self.calc_v()
+        if self.kapa is not None:
+            self.calc_k()
+            if not self.silence:
+                warnings.warn("k is calculated from given kapa, not the input/ default value. Or keep the kapa as None to use given k.", UserWarning)
+        else:
+            self.calc_kapa()
+        if not self.silence:
+            self_check_results = self.check_self_consistency()
+            self_check_warnings = [
+                "The surface gravity g_s is not consistent with the mass and radius. Please check the input parameters and the calculated parameters.",
+                "The total mass M_tot is not consistent with the bulk density and radius. Please check the input parameters and the calculated parameters.",
+                "The thermal diffusivity kapa is not consistent with the thermal conductivity k, density rho_M and specific heat capacity C_p. Please check the input parameters and the calculated parameters.",
+                "The eta is not consistent with the density rho_M and the velocity v. Please check the input parameters and the calculated parameters."
+            ]
+            if not all(self_check_results):
+                warnings.warn("The parameters are not self-consistent." + ", ".join([w for i, w in enumerate(self_check_warnings) if not self_check_results[i]]), UserWarning)
     
     def M_critical(self, T: float, yita: float = 1.2) -> float:
         yita_ratio = yita / (yita - 1)
@@ -31,14 +62,59 @@ class MagmaOceanParameters:
         size_factor = (3 / (4 * math.pi * self.rho_B)) ** (1/3)
         return (yita_ratio*escape_ratio*size_factor)**(3/2)
     
+    def calc_eta(self):
+        assert self.v is not None, "v must be specified to calculate eta."
+        self.eta = self.rho_M * self.v
+    
+    def calc_v(self):
+        assert self.eta is not None, "eta must be specified to calculate v."
+        self.v = self.eta / self.rho_M
+    
+    def calc_kapa(self):
+        assert self.k is not None, "k must be specified to calculate kapa."
+        self.kapa = self.k / (self.rho_M * self.C_p)
+    
+    def calc_k(self):
+        assert self.kapa is not None, "kapa must be specified to calculate k."
+        self.k = self.kapa * self.rho_M * self.C_p
+    
+    def calc_M_tot(self):
+        assert self.r is not None, "r must be specified to calculate M_tot."
+        self.M_tot = (4/3) * math.pi * self.r ** 3 * self.rho_B
+    
+    def calc_r(self):
+        assert self.M_tot is not None, "M_tot must be specified to calculate r."
+        self.r = (3 * self.M_tot / (4 * math.pi * self.rho_B)) ** (1/3)
+    
     def mantle_loss(self, mass_loss: float) -> None:
         """
         update the parameters after the mass loss of the magma ocean.
         """
+        assert self.M_tot is not None, "This assert is written for the type checker."
         self.M_tot -= mass_loss
         self.r -= (mass_loss / self.rho_M) / (4 * math.pi * self.r ** 2)
         # recalculate the surface gravity directly from the new mass and radius.
         self.g_s = G * self.M_tot / self.r ** 2
+    
+    def check_self_consistency(self) -> Tuple[bool,bool,bool,bool]:
+        """
+        Check if the parameters are self-consistent.
+        return: a tuple of bool, indicate the self-consitency of:
+            0. g_s = G * M_tot / r^2
+            1. M_tot = (4/3) * pi * r^3 * rho_B
+            2. kapa = k / (rho_M * C_p)
+            3. eta = rho_M * v
+        """
+        assert self.g_s is not None, "This assert is written for the type checker."
+        assert self.v is not None, "This assert is written for the type checker."
+        assert self.kapa is not None, "This assert is written for the type checker."
+        assert self.M_tot is not None, "This assert is written for the type checker."
+        g_s_consistent = math.isclose(self.g_s, G * self.M_tot / self.r ** 2, rel_tol=1e-6)
+        M_tot_consistent = math.isclose(self.M_tot, (4/3) * math.pi * self.r ** 3 * self.rho_B, rel_tol=1e-6)
+        kapa_consistent = math.isclose(self.kapa, self.k / (self.rho_M * self.C_p), rel_tol=1e-6)
+        eta_consistent = math.isclose(self.eta, self.rho_M * self.v, rel_tol=1e-6)
+        return g_s_consistent, M_tot_consistent, kapa_consistent, eta_consistent
+        
 
 def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float:
     r"""Calculate the average temperature magma ocean from the surface temperature.
@@ -51,8 +127,9 @@ def T_from_T_s(T_s: float, parameter: MagmaOceanParameters, diff=False) -> float
     Returns:
         float: Average temperature of the magma ocean in K.
     """
-    A = parameter.kapa * parameter.v / (parameter.g_s * parameter.rho_M  # type: ignore
-                                         * parameter.alpha_V ) 
+    #A = parameter.kapa * parameter.v / (parameter.g_s * parameter.rho_M  # type: ignore
+    #                                     * parameter.alpha_V ) 
+    A = parameter.kapa * parameter.eta / (parameter.g_s * parameter.rho_M * parameter.alpha_V)  # type: ignore
     B = 2 * parameter.sb_factor * Stefan_Boltzmann / parameter.k
     if not diff:
         Result_from_Calogero = T_s * (1 + T_s ** 2 * A ** (1/4) * B ** (3/4))
@@ -1011,11 +1088,11 @@ def figure_Calogero_2025_figure2_ac():
     K_loss_fractions = np.zeros_like(cooling_times)
 
     # convert M_total to radius and M_l.
-    radius_values = (3 * M_total_values / (4 * math.pi * 3500)) ** (1/3)
+    # radius_values = (3 * M_total_values / (4 * math.pi * 3500)) ** (1/3)
     M_l = 0.7 * M_total_values 
 
-    for i, radius_values in enumerate(radius_values):
-        params = MagmaOceanParameters(r=radius_values)
+    for i, M_total_value in enumerate(M_total_values):
+        params = MagmaOceanParameters(M_tot=M_total_value, alpha_V=3e-5, kapa=6e-7)
         for j, T_init in enumerate(T_inits):
             _, cooling_time, mass_loss, C_final = devoltilization(T_init, M_l[i], params, final_only=True, T_end=1400, yita=1.2)
             cooling_times[j,i] = cooling_time / 365.25/24/3600
@@ -1287,7 +1364,7 @@ def vi_effect_D():
     plt.savefig('effect_D.pdf')
 
 def double_check_eqn1():
-    param = MagmaOceanParameters(r=1e6)
+    param = MagmaOceanParameters(r=1e6, alpha_V=3e-5, silence=True)
     print(T_s_from_T(1400,param))
 
 
